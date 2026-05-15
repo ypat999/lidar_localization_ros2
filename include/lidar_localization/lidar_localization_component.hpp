@@ -21,6 +21,7 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/transform_broadcaster.h>
+#include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
 #include <tf2_eigen/tf2_eigen.hpp>
@@ -89,6 +90,7 @@ public:
   // void gnssReceived();
 
   tf2_ros::TransformBroadcaster broadcaster_;
+  tf2_ros::StaticTransformBroadcaster static_broadcaster_;
   rclcpp::Clock clock_;
   tf2_ros::Buffer tfbuffer_;
   tf2_ros::TransformListener tflistener_;
@@ -97,6 +99,8 @@ public:
     initial_pose_sub_;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
     pose_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
+    map_odom_pose_pub_;
   rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Path>::SharedPtr
     path_pub_;
   rclcpp_lifecycle::LifecyclePublisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr
@@ -124,6 +128,7 @@ public:
   small_gicp::RegistrationPCL<pcl::PointXYZI, pcl::PointXYZI>::Ptr small_gicp_registration_;
 #endif
   pcl::VoxelGrid<pcl::PointXYZI> voxel_grid_filter_;
+  pcl::VoxelGrid<pcl::PointXYZI> map_downsample_filter_;
   geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr corrent_pose_with_cov_stamped_ptr_;
   nav_msgs::msg::Path::SharedPtr path_ptr_;
   sensor_msgs::msg::PointCloud2::ConstSharedPtr last_scan_ptr_;
@@ -211,6 +216,24 @@ public:
   double viz_voxel_leaf_size_{0.5};
   bool predict_pose_from_previous_delta_{true};
   bool reject_above_score_threshold_{true};
+
+  double displacement_threshold_{0.3};
+  double search_radius_{3.0};
+  int search_grid_size_{5};
+  bool enable_displacement_check_{true};
+  bool enable_search_optimization_{true};
+  double map_downsample_leaf_size_{2.0};
+  double last_localization_x_{0.0};
+  double last_localization_y_{0.0};
+  double last_localization_z_{0.0};
+  bool first_localization_done_{false};
+  int initial_localization_accumulate_frames_{10};
+  pcl::PointCloud<pcl::PointXYZI>::Ptr accumulated_cloud_ptr_{new pcl::PointCloud<pcl::PointXYZI>};
+  int accumulated_frame_count_{0};
+  bool enable_angle_search_{true};
+  double angle_search_range_{0.349};
+  int angle_search_steps_{9};
+  bool enable_z_axis_search_{false};
   bool enable_consistency_recovery_gate_{false};
   int consistency_recovery_min_rejections_{10};
   double consistency_recovery_score_margin_{2.0};
@@ -357,4 +380,18 @@ public:
     double seed_yaw_since_accept_deg = std::numeric_limits<double>::quiet_NaN(),
     double accepted_gap_sec = std::numeric_limits<double>::quiet_NaN(),
     bool imu_prediction_active = false);
+
+  double calculateDisplacement(const geometry_msgs::msg::Pose& current_pose);
+  bool shouldUpdateLocalization(const geometry_msgs::msg::Pose& current_pose);
+
+  struct SearchResult {
+    Eigen::Matrix4f transformation;
+    bool has_converged;
+    double fitness_score;
+  };
+
+  SearchResult searchOptimalTransformation(
+    const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud_ptr,
+    const Eigen::Matrix4f& initial_guess,
+    bool search_z_axis);
 };

@@ -48,3 +48,14 @@
       base_frame_id: base_link
       enable_timer_publishing: false
       pose_publish_frequency: 30.0
+      displacement_threshold: 0.3
+      search_radius: 3.0
+      search_grid_size: 5
+      enable_displacement_check: true
+      enable_search_optimization: true
+      map_downsample_leaf_size: 2.0
+      enable_angle_search: true
+      angle_search_range: 0.349
+      angle_search_steps: 9
+      enable_z_axis_search: false
+      initial_localization_accumulate_frames: 10
