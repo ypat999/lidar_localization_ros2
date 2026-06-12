@@ -1,21 +1,19 @@
 /**:
     ros__parameters:
-      registration_method: "NDT_OMP"
-      score_threshold: 2.0
-      ndt_resolution: 1.0
-      ndt_step_size: 0.1
-      ndt_num_threads: 4
-      ndt_max_iterations: 35
-      gicp_corr_randomness: 20
-      gicp_max_correspondence_distance: 2.0
-      vgicp_voxel_resolution: 1.0
-      transform_epsilon: 0.01
-      voxel_leaf_size: 0.2
-      scan_max_range: 100.0
-      scan_min_range: 1.0
-      scan_period: 0.1
+      registration_method: "NDT_OMP"   #"GICP_OMP" 
+      score_threshold: 0.00001              # Lower threshold for better accuracy
+      ndt_resolution: 0.15               # Higher resolution for better accuracy
+      ndt_step_size: 0.15               # Larger step size for better rotation convergence
+      ndt_num_threads: 4                 # More threads for faster processing
+      ndt_max_iterations: 256            # More iterations for better convergence
+      transform_epsilon: 0.0001         # Relaxed epsilon for better convergence
+
+      voxel_leaf_size: 0.1               # Smaller voxel size for better detail
+      scan_max_range: 40.0               # Extended range for better matching
+      scan_min_range: 0.5
+      scan_period: 0.05
       use_pcd_map: true
-      map_path: ""
+      map_path: "/home/cat/slam_data/3d_map/3dmap.pcd" #"/home/ywj/pcd/test.pcd"
       set_initial_pose: true
       initial_pose_x: 0.0
       initial_pose_y: 0.0
@@ -23,39 +21,47 @@
       initial_pose_qx: 0.0
       initial_pose_qy: 0.0
       initial_pose_qz: 0.0
-      initial_pose_qw: 0.0
-      use_odom: false
-      use_twist_prediction: false
-      twist_prediction_use_angular_velocity: true
-      max_twist_prediction_dt: 0.5
+      initial_pose_qw: 1.0
+      use_odom: true
       use_imu: false
-      use_imu_preintegration: true
-      imu_prediction_correction_guard_translation_m: 2.0
-      imu_prediction_correction_guard_yaw_deg: 4.0
-      enable_reinitialization_request_output: true
-      enable_reinitialization_request_latch: true
-      reinitialization_trigger_threshold: 0.95
-      reinitialization_trigger_gap_scale_sec: 30.0
-      reinitialization_trigger_seed_translation_scale_m: 100.0
-      reinitialization_trigger_reject_streak_scale: 200.0
-      reinitialization_trigger_fitness_explosion_threshold: 1000.0
-      enable_debug: true
-      predict_pose_from_previous_delta: true
-      reject_above_score_threshold: true
-      enable_map_odom_tf: false
+      enable_debug: false
+      enable_map_odom_tf: true
       global_frame_id: map
       odom_frame_id: odom
-      base_frame_id: base_link
-      enable_timer_publishing: false
-      pose_publish_frequency: 30.0
-      displacement_threshold: 0.3
-      search_radius: 3.0
-      search_grid_size: 5
-      enable_displacement_check: true
-      enable_search_optimization: true
-      map_downsample_leaf_size: 2.0
-      enable_angle_search: true
-      angle_search_range: 0.349
-      angle_search_steps: 9
-      enable_z_axis_search: false
-      initial_localization_accumulate_frames: 10
+      base_frame_id: base_footprint
+      enable_timer_publishing: true
+      pose_publish_frequency: 10.0
+      
+      # New parameters for improved localization
+      displacement_threshold: 5.0        # Only update when displacement > 0.3m（位移触发阈值）
+      search_radius: 1.0                 # Search radius around initial point（搜索半径）
+      search_grid_size: 5                # Grid points per dimension for search（搜索网格密度）
+      enable_displacement_check: true    # Enable displacement-based triggering（启用位移检查）
+      enable_search_optimization: true   # Enable two-stage search for optimal localization（启用两阶段搜索优化）
+      
+      # New parameters for map downsampling（地图降采样参数）
+      map_downsample_leaf_size: 0.5       # Leaf size for map downsampling in meters（地图降采样的leaf大小，单位：米）
+      
+      # New parameters for Z-axis search（Z轴搜索参数）
+      enable_z_axis_search: true        # Enable Z-axis search for all triggers（启用Z轴搜索，对所有触发类型生效）
+      
+      # Two-stage search strategy:
+      # Stage 1: Search Z-axis (if enabled, 5 times)
+      # Stage 2: Search angles at best Z position (4 times) = 9 total (with Z) or 4 total (without Z)
+      # Always performs angle search for better rotation convergence
+      # 两阶段搜索策略：
+      # 第一阶段：搜索Z轴（如果启用，5次）
+      # 第二阶段：在最佳Z位置搜索角度（4次）= 总共9次（启用Z）或4次（不启用Z）
+      # 总是执行角度搜索以获得更好的旋转收敛
+      
+      # New parameters for angle search optimization（角度搜索优化参数）
+      enable_angle_search: true          # Enable angle search for better rotation convergence（启用角度搜索）
+      angle_search_range: 0.2          # Angle search range in radians (±20 degrees)（角度搜索范围）
+      angle_search_steps: 5              # Number of angle steps to try（角度搜索步数）
+      
+      # New parameters for dynamic score threshold mechanism
+      enable_dynamic_threshold: true     # Enable dynamic threshold mechanism（启用动态阈值机制）
+      dynamic_threshold_factor: 2.0      # Factor for dynamic threshold (new score must be <= current * factor)（动态阈值因子）
+      
+      # Initial localization accumulation（初始定位多帧叠加参数）
+      initial_localization_accumulate_frames: 10  # Number of frames to accumulate for initial localization（初始定位叠加帧数，mid360非重复扫描建议10帧以上）
