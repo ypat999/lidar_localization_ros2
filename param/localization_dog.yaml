@@ -13,7 +13,7 @@
       scan_min_range: 0.5
       scan_period: 0.05
       use_pcd_map: true
-      map_path: "/home/cat/slam_data/3d_map/3dmap.pcd" #"/home/ywj/pcd/test.pcd"
+      map_path: "/home/ztl/slam_data/3d_map/3dmap.pcd" #"/home/ywj/pcd/test.pcd"
       set_initial_pose: true
       initial_pose_x: 0.0
       initial_pose_y: 0.0

@@ -150,8 +150,14 @@ CallbackReturn PCLLocalization::on_activate(const rclcpp_lifecycle::State &)
     map_downsample_filter_.filter(*downsampled_cloud_ptr);
     RCLCPP_INFO(get_logger(), "Downsampled Map Size %ld", downsampled_cloud_ptr->size());
     
-    // Save downsampled map to 3dmap_down.pcd
-    std::string downsampled_map_path = "/home/cat/slam_data/3d_map/3dmap_down.pcd";
+    // Save downsampled map in same folder as original map with _down suffix
+    std::string downsampled_map_path = map_path_;
+    size_t ext_pos = downsampled_map_path.rfind('.');
+    if (ext_pos != std::string::npos) {
+      downsampled_map_path.insert(ext_pos, "_down");
+    } else {
+      downsampled_map_path += "_down";
+    }
     if (pcl::io::savePCDFileASCII(downsampled_map_path, *downsampled_cloud_ptr) == -1) {
       RCLCPP_ERROR(get_logger(), "Failed to save downsampled map to: %s", downsampled_map_path.c_str());
     } else {
