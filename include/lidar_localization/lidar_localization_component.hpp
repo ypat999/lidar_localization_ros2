@@ -5,6 +5,8 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <mutex>
+#include <vector>
 
 #include <pcl/registration/registration.h>
 #include <pcl/filters/voxel_grid.h>
@@ -177,6 +179,10 @@ public:
   double calculateDisplacement(const geometry_msgs::msg::Pose& current_pose);
   bool shouldUpdateLocalization(const geometry_msgs::msg::Pose& current_pose);
   
+  // Performance statistics methods
+  void performanceTimerCallback();
+  void addPerformanceStatistics(const std::string& method, double duration);
+  
   struct SearchResult {
     Eigen::Matrix4f transformation;
     bool has_converged;
@@ -187,4 +193,10 @@ public:
     const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud_ptr,
     const Eigen::Matrix4f& initial_guess,
     bool search_z_axis);
+    
+  // Performance statistics variables
+  rclcpp::TimerBase::SharedPtr performance_timer_;
+  std::vector<double> icp_performance_stats_;
+  std::vector<double> ndt_performance_stats_;
+  std::mutex performance_stats_mutex_;
 };

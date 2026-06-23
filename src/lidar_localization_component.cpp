@@ -1,5 +1,6 @@
 #include <lidar_localization/lidar_localization_component.hpp>
 #include <chrono>
+#include <numeric>
 
 PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
 : rclcpp_lifecycle::LifecycleNode("lidar_localization", options),
@@ -189,6 +190,11 @@ CallbackReturn PCLLocalization::on_activate(const rclcpp_lifecycle::State &)
 
     map_recieved_ = true;
   }
+
+  // Create performance statistics timer (30 seconds interval)
+  performance_timer_ = create_wall_timer(
+    std::chrono::seconds(30),
+    std::bind(&PCLLocalization::performanceTimerCallback, this));
 
   RCLCPP_INFO(get_logger(), "Activating end");
   return CallbackReturn::SUCCESS;
@@ -938,4 +944,42 @@ bool PCLLocalization::shouldUpdateLocalization(const geometry_msgs::msg::Pose& c
   }
   
   return false;
+}
+
+void PCLLocalization::addPerformanceStatistics(const std::string& method, double duration)
+{
+  std::lock_guard<std::mutex> lock(performance_stats_mutex_);
+  
+  if (method == "ICP") {
+    icp_performance_stats_.push_back(duration);
+  } else if (method == "NDT") {
+    ndt_performance_stats_.push_back(duration);
+  }
+}
+
+void PCLLocalization::performanceTimerCallback()
+{
+  std::lock_guard<std::mutex> lock(performance_stats_mutex_);
+  
+  // Calculate and output ICP performance statistics
+  if (!icp_performance_stats_.empty()) {
+    double total_icp_time = std::accumulate(icp_performance_stats_.begin(), icp_performance_stats_.end(), 0.0);
+    double avg_icp_time = total_icp_time / icp_performance_stats_.size();
+    RCLCPP_INFO(get_logger(), "ICP Performance: %zu calculations, average time: %.3f ms", 
+                icp_performance_stats_.size(), avg_icp_time);
+    icp_performance_stats_.clear();
+  }
+  
+  // Calculate and output NDT performance statistics
+  if (!ndt_performance_stats_.empty()) {
+    double total_ndt_time = std::accumulate(ndt_performance_stats_.begin(), ndt_performance_stats_.end(), 0.0);
+    double avg_ndt_time = total_ndt_time / ndt_performance_stats_.size();
+    RCLCPP_INFO(get_logger(), "NDT Performance: %zu calculations, average time: %.3f ms", 
+                ndt_performance_stats_.size(), avg_ndt_time);
+    ndt_performance_stats_.clear();
+  }
+  
+  if (icp_performance_stats_.empty() && ndt_performance_stats_.empty()) {
+    RCLCPP_INFO(get_logger(), "No ICP/NDT performance data in the last 30 seconds");
+  }
 }

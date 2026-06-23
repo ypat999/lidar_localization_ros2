@@ -81,7 +81,17 @@ PCLLocalization::SearchResult PCLLocalization::searchOptimalTransformation(
     // Use standard single-point registration
     registration_->setInputSource(cloud_ptr);
     pcl::PointCloud<pcl::PointXYZI>::Ptr output_cloud(new pcl::PointCloud<pcl::PointXYZI>);
+    
+    // Measure performance for ICP/NDT
+    auto start_time = std::chrono::high_resolution_clock::now();
     registration_->align(*output_cloud, initial_guess);
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    
+    // Add to performance statistics
+    std::string method = (registration_method_.find("GICP") != std::string::npos) ? "ICP" : "NDT";
+    addPerformanceStatistics(method, duration);
+    
     result.transformation = registration_->getFinalTransformation();
     result.has_converged = registration_->hasConverged();
     result.fitness_score = registration_->getFitnessScore();
@@ -176,7 +186,15 @@ PCLLocalization::SearchResult PCLLocalization::searchOptimalTransformation(
       test_registration->setInputSource(cloud_ptr);
       pcl::PointCloud<pcl::PointXYZI>::Ptr output_cloud(new pcl::PointCloud<pcl::PointXYZI>);
       
+      // Measure performance for ICP/NDT in Stage 1
+      auto start_time = std::chrono::high_resolution_clock::now();
       test_registration->align(*output_cloud, test_guess);
+      auto end_time = std::chrono::high_resolution_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+      
+      // Add to performance statistics
+      std::string method = (registration_method_.find("GICP") != std::string::npos) ? "ICP" : "NDT";
+      addPerformanceStatistics(method, duration);
       
       if (test_registration->hasConverged()) {
         double fitness_score = test_registration->getFitnessScore();
@@ -263,8 +281,15 @@ PCLLocalization::SearchResult PCLLocalization::searchOptimalTransformation(
       test_registration->setInputSource(cloud_ptr);
       pcl::PointCloud<pcl::PointXYZI>::Ptr output_cloud(new pcl::PointCloud<pcl::PointXYZI>);
       
-      
+      // Measure performance for ICP/NDT in Stage 2
+      auto start_time = std::chrono::high_resolution_clock::now();
       test_registration->align(*output_cloud, test_guess);
+      auto end_time = std::chrono::high_resolution_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+      
+      // Add to performance statistics
+      std::string method = (registration_method_.find("GICP") != std::string::npos) ? "ICP" : "NDT";
+      addPerformanceStatistics(method, duration);
       
       if (test_registration->hasConverged()) {
         double fitness_score = test_registration->getFitnessScore();
@@ -286,7 +311,15 @@ PCLLocalization::SearchResult PCLLocalization::searchOptimalTransformation(
     registration_->setInputSource(cloud_ptr);
     pcl::PointCloud<pcl::PointXYZI>::Ptr output_cloud(new pcl::PointCloud<pcl::PointXYZI>);
     
+    // Measure performance for ICP/NDT fallback
+    auto start_time = std::chrono::high_resolution_clock::now();
     registration_->align(*output_cloud, initial_guess);
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    
+    // Add to performance statistics
+    std::string method = (registration_method_.find("GICP") != std::string::npos) ? "ICP" : "NDT";
+    addPerformanceStatistics(method, duration);
     
     best_transformation = registration_->getFinalTransformation();
     best_has_converged = registration_->hasConverged();
