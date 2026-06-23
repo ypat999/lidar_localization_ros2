@@ -62,6 +62,13 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
   declare_parameter("enable_dynamic_threshold", true);
   declare_parameter("dynamic_threshold_factor", 2.0);
   declare_parameter("initial_localization_accumulate_frames", 10);
+  
+  // GICP-specific parameters
+  declare_parameter("gicp_corr_dist_threshold", 5.0);
+  declare_parameter("gicp_rotation_epsilon", 0.002);
+  declare_parameter("gicp_k_correspondences", 20);
+  declare_parameter("gicp_max_optimizer_iterations", 20);
+  declare_parameter("gicp_epsilon", 0.01);
 }
 
 using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
@@ -173,11 +180,11 @@ CallbackReturn PCLLocalization::on_activate(const rclcpp_lifecycle::State &)
 
     if (registration_method_ == "GICP" || registration_method_ == "GICP_OMP") {
       pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_cloud_ptr(new pcl::PointCloud<pcl::PointXYZI>());
-      voxel_grid_filter_.setInputCloud(downsampled_cloud_ptr);
+      voxel_grid_filter_.setInputCloud(map_cloud_ptr);
       voxel_grid_filter_.filter(*filtered_cloud_ptr);
       registration_->setInputTarget(filtered_cloud_ptr);
     } else {
-      registration_->setInputTarget(downsampled_cloud_ptr);
+      registration_->setInputTarget(map_cloud_ptr);
     }
 
     map_recieved_ = true;
@@ -324,6 +331,19 @@ void PCLLocalization::initializeParameters()
   RCLCPP_INFO(get_logger(),"enable_dynamic_threshold: %d", enable_dynamic_threshold_);
   RCLCPP_INFO(get_logger(),"dynamic_threshold_factor: %lf", dynamic_threshold_factor_);
   RCLCPP_INFO(get_logger(),"initial_localization_accumulate_frames: %d", initial_localization_accumulate_frames_);
+
+  // GICP-specific parameters
+  get_parameter("gicp_corr_dist_threshold", gicp_corr_dist_threshold_);
+  get_parameter("gicp_rotation_epsilon", gicp_rotation_epsilon_);
+  get_parameter("gicp_k_correspondences", gicp_k_correspondences_);
+  get_parameter("gicp_max_optimizer_iterations", gicp_max_optimizer_iterations_);
+  get_parameter("gicp_epsilon", gicp_epsilon_);
+  
+  RCLCPP_INFO(get_logger(),"gicp_corr_dist_threshold: %lf", gicp_corr_dist_threshold_);
+  RCLCPP_INFO(get_logger(),"gicp_rotation_epsilon: %lf", gicp_rotation_epsilon_);
+  RCLCPP_INFO(get_logger(),"gicp_k_correspondences: %d", gicp_k_correspondences_);
+  RCLCPP_INFO(get_logger(),"gicp_max_optimizer_iterations: %d", gicp_max_optimizer_iterations_);
+  RCLCPP_INFO(get_logger(),"gicp_epsilon: %lf", gicp_epsilon_);
 }
 
 void PCLLocalization::initializePubSub()
@@ -374,54 +394,6 @@ void PCLLocalization::initializePubSub()
   }
 
   RCLCPP_INFO(get_logger(), "initializePubSub end");
-}
-
-void PCLLocalization::initializeRegistration()
-{
-  RCLCPP_INFO(get_logger(), "initializeRegistration");
-
-  if (registration_method_ == "GICP") {
-    boost::shared_ptr<pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI>> gicp(
-      new pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI>());
-    gicp->setTransformationEpsilon(transform_epsilon_);
-    registration_ = gicp;
-  }
-  else if (registration_method_ == "NDT") {
-    boost::shared_ptr<pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI>> ndt(
-      new pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI>());
-    ndt->setStepSize(ndt_step_size_);
-    ndt->setResolution(ndt_resolution_);
-    ndt->setTransformationEpsilon(transform_epsilon_);
-    registration_ = ndt;
-  }
-  else if (registration_method_ == "NDT_OMP") {
-    pclomp::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI>::Ptr ndt_omp(
-      new pclomp::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI>());
-    ndt_omp->setStepSize(ndt_step_size_);
-    ndt_omp->setResolution(ndt_resolution_);
-    ndt_omp->setTransformationEpsilon(transform_epsilon_);
-    if (ndt_num_threads_ > 0) {
-      ndt_omp->setNumThreads(ndt_num_threads_);
-    } else {
-      ndt_omp->setNumThreads(omp_get_max_threads());
-    }
-    registration_ = ndt_omp;
-  }
-  else if (registration_method_ == "GICP_OMP") {
-    pclomp::GeneralizedIterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI>::Ptr gicp_omp(
-      new pclomp::GeneralizedIterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI>());
-    gicp_omp->setTransformationEpsilon(transform_epsilon_);
-    registration_ = gicp_omp;
-  }
-  else {
-    RCLCPP_ERROR(get_logger(), "Invalid registration method.");
-    exit(EXIT_FAILURE);
-  }
-  registration_->setMaximumIterations(ndt_max_iterations_);
-
-  voxel_grid_filter_.setLeafSize(voxel_leaf_size_, voxel_leaf_size_, voxel_leaf_size_);
-  map_downsample_filter_.setLeafSize(map_downsample_leaf_size_, map_downsample_leaf_size_, map_downsample_leaf_size_);
-  RCLCPP_INFO(get_logger(), "initializeRegistration end");
 }
 
 void PCLLocalization::initialPoseReceived(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg)
@@ -526,51 +498,76 @@ void PCLLocalization::odomReceived(const nav_msgs::msg::Odometry::ConstSharedPtr
     return;
   }
   
-
-  double current_odom_received_time = msg->header.stamp.sec +
-    msg->header.stamp.nanosec * 1e-9;
-  if (last_odom_received_time_ == 0.0) {
-    last_odom_received_time_ = current_odom_received_time;
+  // Use TF composition to update pose in map frame:
+  //   map->base = map->odom * odom->base
+  // This replaces the old twist-integration approach.
+  
+  // Step 1: Look up odom->base transform (published by odometry source, e.g. LIO-SAM)
+  geometry_msgs::msg::TransformStamped odom_to_base_stamped;
+  try {
+    odom_to_base_stamped = tfbuffer_.lookupTransform(
+      odom_frame_id_, base_frame_id_, msg->header.stamp, rclcpp::Duration::from_seconds(0.1));
+  } catch (const tf2::TransformException & ex) {
+    RCLCPP_WARN(this->get_logger(), "odomReceived: Could not get transform %s -> %s: %s",
+      odom_frame_id_.c_str(), base_frame_id_.c_str(), ex.what());
     return;
   }
-  double dt_odom = current_odom_received_time - last_odom_received_time_;
-  last_odom_received_time_ = current_odom_received_time;
-  if (dt_odom > 1.0 /* [sec] */) {
-    RCLCPP_WARN(this->get_logger(), "odom time interval is too large: %f", dt_odom);
-    return;
+  
+  // Step 2: Look up map->odom transform (published by this node after each localization)
+  geometry_msgs::msg::TransformStamped map_to_odom_stamped;
+  bool map_to_odom_valid = true;
+  try {
+    map_to_odom_stamped = tfbuffer_.lookupTransform(
+      global_frame_id_, odom_frame_id_, msg->header.stamp, rclcpp::Duration::from_seconds(0.1));
+  } catch (const tf2::TransformException & ex) {
+    // map->odom not yet available (no successful localization yet)
+    map_to_odom_valid = false;
   }
-  if (dt_odom < 0.0 /* [sec] */) {
-    RCLCPP_WARN(this->get_logger(), "odom time interval is negative: %f", dt_odom);
-    return;
+  
+  if (map_to_odom_valid) {
+    // Only compose map->base if initial localization is done.
+    // During initial localization (accumulating frames), the initial pose from user
+    // must not be overwritten by stale map->odom TF from a previous session.
+    if (!first_localization_done_) {
+      // Still accumulating, skip odom-based pose update
+    } else {
+      // Compose: map->base = map->odom * odom->base
+      tf2::Transform map_to_odom_tf, odom_to_base_tf, map_to_base_tf;
+      tf2::fromMsg(map_to_odom_stamped.transform, map_to_odom_tf);
+      tf2::fromMsg(odom_to_base_stamped.transform, odom_to_base_tf);
+      map_to_base_tf = map_to_odom_tf * odom_to_base_tf;
+      
+      corrent_pose_with_cov_stamped_ptr_->header.stamp = msg->header.stamp;
+      corrent_pose_with_cov_stamped_ptr_->pose.pose.position.x = map_to_base_tf.getOrigin().x();
+      corrent_pose_with_cov_stamped_ptr_->pose.pose.position.y = map_to_base_tf.getOrigin().y();
+      corrent_pose_with_cov_stamped_ptr_->pose.pose.position.z = map_to_base_tf.getOrigin().z();
+      corrent_pose_with_cov_stamped_ptr_->pose.pose.orientation = tf2::toMsg(map_to_base_tf.getRotation());
+    }
+  } else {
+    // No map->odom yet, use odom->base directly as fallback (only if initial localization done)
+    if (first_localization_done_) {
+      corrent_pose_with_cov_stamped_ptr_->header.stamp = msg->header.stamp;
+      corrent_pose_with_cov_stamped_ptr_->pose.pose.position.x = odom_to_base_stamped.transform.translation.x;
+      corrent_pose_with_cov_stamped_ptr_->pose.pose.position.y = odom_to_base_stamped.transform.translation.y;
+      corrent_pose_with_cov_stamped_ptr_->pose.pose.position.z = odom_to_base_stamped.transform.translation.z;
+      corrent_pose_with_cov_stamped_ptr_->pose.pose.orientation = odom_to_base_stamped.transform.rotation;
+    }
   }
-
-  tf2::Quaternion previous_quat_tf;
-  double roll, pitch, yaw;
-  tf2::fromMsg(corrent_pose_with_cov_stamped_ptr_->pose.pose.orientation, previous_quat_tf);
-
-  tf2::Matrix3x3(previous_quat_tf).getRPY(roll, pitch, yaw);
-
-  roll += msg->twist.twist.angular.x * dt_odom;
-  pitch += msg->twist.twist.angular.y * dt_odom;
-  yaw += msg->twist.twist.angular.z * dt_odom;
-
-  Eigen::Quaterniond quat_eig =
-    Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX()) *
-    Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
-    Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ());
-
-  geometry_msgs::msg::Quaternion quat_msg = tf2::toMsg(quat_eig);
-
-  Eigen::Vector3d odom{
-    msg->twist.twist.linear.x,
-    msg->twist.twist.linear.y,
-    msg->twist.twist.linear.z};
-  Eigen::Vector3d delta_position = quat_eig.matrix() * dt_odom * odom;
-
-  corrent_pose_with_cov_stamped_ptr_->pose.pose.position.x += delta_position.x();
-  corrent_pose_with_cov_stamped_ptr_->pose.pose.position.y += delta_position.y();
-  corrent_pose_with_cov_stamped_ptr_->pose.pose.position.z += delta_position.z();
-  corrent_pose_with_cov_stamped_ptr_->pose.pose.orientation = quat_msg;
+  
+  // Accumulate odom distance from odom->base translation delta
+  if (last_odom_pose_valid_) {
+    double dx = odom_to_base_stamped.transform.translation.x - last_odom_pose_.position.x;
+    double dy = odom_to_base_stamped.transform.translation.y - last_odom_pose_.position.y;
+    double dz = odom_to_base_stamped.transform.translation.z - last_odom_pose_.position.z;
+    accumulated_odom_distance_ += std::sqrt(dx*dx + dy*dy + dz*dz);
+  }
+  
+  // Cache current odom->base pose for next iteration
+  last_odom_pose_.position.x = odom_to_base_stamped.transform.translation.x;
+  last_odom_pose_.position.y = odom_to_base_stamped.transform.translation.y;
+  last_odom_pose_.position.z = odom_to_base_stamped.transform.translation.z;
+  last_odom_pose_.orientation = odom_to_base_stamped.transform.rotation;
+  last_odom_pose_valid_ = true;
 }
 
 void PCLLocalization::imuReceived(const sensor_msgs::msg::Imu::ConstSharedPtr msg)
@@ -606,11 +603,11 @@ void PCLLocalization::imuReceived(const sensor_msgs::msg::Imu::ConstSharedPtr ms
     return;
   }
 
-  Eigen::Vector3f angular_velo{tf_converted_imu.angular_velocity.x, tf_converted_imu.angular_velocity.y,
-    tf_converted_imu.angular_velocity.z};
-  Eigen::Vector3f acc{tf_converted_imu.linear_acceleration.x, tf_converted_imu.linear_acceleration.y, tf_converted_imu.linear_acceleration.z};
-  Eigen::Quaternionf quat{msg->orientation.w, msg->orientation.x, msg->orientation.y,
-    msg->orientation.z};
+  Eigen::Vector3f angular_velo{static_cast<float>(tf_converted_imu.angular_velocity.x), static_cast<float>(tf_converted_imu.angular_velocity.y),
+    static_cast<float>(tf_converted_imu.angular_velocity.z)};
+  Eigen::Vector3f acc{static_cast<float>(tf_converted_imu.linear_acceleration.x), static_cast<float>(tf_converted_imu.linear_acceleration.y), static_cast<float>(tf_converted_imu.linear_acceleration.z)};
+  Eigen::Quaternionf quat{static_cast<float>(msg->orientation.w), static_cast<float>(msg->orientation.x), static_cast<float>(msg->orientation.y),
+    static_cast<float>(msg->orientation.z)};
   double imu_time = msg->header.stamp.sec +
     msg->header.stamp.nanosec * 1e-9;
 
@@ -717,9 +714,15 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
 
   bool has_converged = search_result.has_converged;
   double fitness_score = search_result.fitness_score;
+  
   if (!has_converged) {
-    RCLCPP_WARN(get_logger(), "The registration didn't converge.");
-    return;
+    // GICP may report hasConverged=false even with a valid solution (BFGS inner exception).
+    // Only reject if fitness is unreasonably high or DBL_MAX.
+    if (fitness_score >= std::numeric_limits<double>::max() / 2.0) {
+      RCLCPP_WARN(get_logger(), "The registration didn't converge and no valid fitness score.");
+      return;
+    }
+    RCLCPP_WARN(get_logger(), "Registration reported not converged, but accepting fitness=%.6f as valid", fitness_score);
   }
   
   // Dynamic score threshold mechanism
@@ -789,10 +792,20 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
     odom_to_base_link_msg = tfbuffer_.lookupTransform(
       odom_frame_id_, base_frame_id_, msg->header.stamp, rclcpp::Duration::from_seconds(1.0));
   } catch (tf2::TransformException & ex) {
-    RCLCPP_WARN(
-      this->get_logger(), "Could not get transform %s to %s: %s",
-      base_frame_id_.c_str(), odom_frame_id_.c_str(), ex.what());
-    return;
+    // Try with latest available time as fallback
+    RCLCPP_WARN(this->get_logger(),
+      "Could not get transform %s to %s at stamp %.3f, trying latest: %s",
+      odom_frame_id_.c_str(), base_frame_id_.c_str(),
+      rclcpp::Time(msg->header.stamp).seconds(), ex.what());
+    try {
+      odom_to_base_link_msg = tfbuffer_.lookupTransform(
+        odom_frame_id_, base_frame_id_, tf2::TimePointZero);
+    } catch (tf2::TransformException & ex2) {
+      RCLCPP_ERROR(this->get_logger(),
+        "Could not get transform %s to %s even at latest: %s. Skipping TF publish.",
+        odom_frame_id_.c_str(), base_frame_id_.c_str(), ex2.what());
+      return;
+    }
   }
   tf2::Transform odom_to_base_link_tf;
   tf2::fromMsg(odom_to_base_link_msg.transform, odom_to_base_link_tf);
@@ -913,246 +926,16 @@ bool PCLLocalization::shouldUpdateLocalization(const geometry_msgs::msg::Pose& c
   // Force first localization to execute
   if (!first_localization_done_) {
     first_localization_done_ = true;
+    accumulated_odom_distance_ = 0.0;
     return true;
   }
   
-  double displacement = calculateDisplacement(current_pose);
-  
-  // RCLCPP_INFO(get_logger(), "Current pose: (%.3f, %.3f, %.3f), Last localization: (%.3f, %.3f, %.3f), Displacement: %.3f m",
-  //   current_pose.position.x, current_pose.position.y, current_pose.position.z,
-  //   last_localization_x_, last_localization_y_, last_localization_z_,
-  //   displacement);
-  
-  if (displacement > displacement_threshold_) {
-    // Update last localization position
-    last_localization_x_ = current_pose.position.x;
-    last_localization_y_ = current_pose.position.y;
-    last_localization_z_ = current_pose.position.z;
-    
-    RCLCPP_INFO(get_logger(), "Displacement %.3f m exceeds threshold %.3f m, updating localization",
-      displacement, displacement_threshold_);
+  if (accumulated_odom_distance_ > displacement_threshold_) {
+    RCLCPP_INFO(get_logger(), "Accumulated odom distance %.3f m exceeds threshold %.3f m, triggering localization",
+      accumulated_odom_distance_, displacement_threshold_);
+    accumulated_odom_distance_ = 0.0;
     return true;
   }
-  
   
   return false;
-}
-
-PCLLocalization::SearchResult PCLLocalization::searchOptimalTransformation(
-  const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud_ptr,
-  const Eigen::Matrix4f& initial_guess,
-  bool search_z_axis)
-{
-  SearchResult result;
-  result.transformation = initial_guess;
-  result.has_converged = false;
-  result.fitness_score = std::numeric_limits<double>::max();
-  
-  if (!enable_search_optimization_) {
-    // Use standard single-point registration
-    registration_->setInputSource(cloud_ptr);
-    pcl::PointCloud<pcl::PointXYZI>::Ptr output_cloud(new pcl::PointCloud<pcl::PointXYZI>);
-    registration_->align(*output_cloud, initial_guess);
-    result.transformation = registration_->getFinalTransformation();
-    result.has_converged = registration_->hasConverged();
-    result.fitness_score = registration_->getFitnessScore();
-    return result;
-  }
-  
-  RCLCPP_DEBUG(this->get_logger(), "Performing two-stage search optimization with radius %lf m", search_radius_);
-  if (enable_angle_search_) {
-    RCLCPP_DEBUG(this->get_logger(), "Angle search enabled: range %.3f rad (%.1f deg), %d steps", 
-      angle_search_range_, angle_search_range_ * 180.0 / M_PI, angle_search_steps_);
-  }
-  RCLCPP_DEBUG(this->get_logger(), "Z-axis search: %s", search_z_axis ? "enabled" : "disabled");
-  
-  // Extract initial position and rotation from transformation matrix
-  Eigen::Vector3f initial_position = initial_guess.block<3,1>(0,3);
-  Eigen::Matrix3f initial_rotation = initial_guess.block<3,3>(0,0);
-  Eigen::Vector3f initial_euler = initial_rotation.eulerAngles(0, 1, 2);
-  
-  double best_fitness_score = std::numeric_limits<double>::max();
-  Eigen::Matrix4f best_transformation = initial_guess;
-  bool best_has_converged = false;
-  double best_z_offset = 0.0;
-  
-  // Calculate step size for z-axis search
-  double z_step_size = (2.0 * search_radius_) / (search_grid_size_ - 1);
-  
-  // Calculate angle step size for yaw search
-  double angle_step_size = (2.0 * angle_search_range_) / (angle_search_steps_ - 1);
-  
-  int total_searches = 0;
-  if (search_z_axis) {
-    total_searches = search_grid_size_;
-  }
-  if (enable_angle_search_) {
-    total_searches += (angle_search_steps_ - 1);
-  }
-  
-  RCLCPP_DEBUG(this->get_logger(), "Total search iterations (two-stage): %d", total_searches);
-  
-  int search_count = 0;
-  
-  // Stage 1: Search z-axis only (only if search_z_axis is true)
-  if (search_z_axis) {
-    for (int k = 0; k < search_grid_size_; ++k) {
-      search_count++;
-      
-      // Calculate z offset for this grid point
-      double z_offset = -search_radius_ + k * z_step_size;
-      
-      // Create transformation matrix with z offset only
-      Eigen::Matrix4f test_guess = initial_guess;
-      test_guess(0,3) = initial_position.x();  // Keep x unchanged
-      test_guess(1,3) = initial_position.y();  // Keep y unchanged
-      test_guess(2,3) = initial_position.z() + z_offset;  // Apply z offset
-      
-      // Keep original rotation (no angle offset in stage 1)
-      test_guess.block<3,3>(0,0) = initial_rotation;
-      
-      // Create a new registration object for each test to avoid state issues
-      boost::shared_ptr<pcl::Registration<pcl::PointXYZI, pcl::PointXYZI>> test_registration;
-      
-      if (registration_method_ == "NDT_OMP") {
-        pclomp::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI>::Ptr ndt_omp(
-          new pclomp::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI>());
-        ndt_omp->setStepSize(ndt_step_size_);
-        ndt_omp->setResolution(ndt_resolution_);
-        ndt_omp->setTransformationEpsilon(transform_epsilon_);
-        if (ndt_num_threads_ > 0) {
-          ndt_omp->setNumThreads(ndt_num_threads_);
-        }
-        ndt_omp->setMaximumIterations(ndt_max_iterations_);
-        ndt_omp->setInputTarget(registration_->getInputTarget());
-        test_registration = ndt_omp;
-      } else if (registration_method_ == "GICP_OMP") {
-        pclomp::GeneralizedIterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI>::Ptr gicp_omp(
-          new pclomp::GeneralizedIterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI>());
-        gicp_omp->setTransformationEpsilon(transform_epsilon_);
-        gicp_omp->setMaximumIterations(ndt_max_iterations_);
-        gicp_omp->setInputTarget(registration_->getInputTarget());
-        test_registration = gicp_omp;
-      } else {
-        // Fallback to standard registration
-        test_registration = registration_;
-      }
-      
-      // Perform registration with this initial guess
-      test_registration->setInputSource(cloud_ptr);
-      pcl::PointCloud<pcl::PointXYZI>::Ptr output_cloud(new pcl::PointCloud<pcl::PointXYZI>);
-      test_registration->align(*output_cloud, test_guess);
-      
-      if (test_registration->hasConverged()) {
-        double fitness_score = test_registration->getFitnessScore();
-        
-        if (fitness_score < best_fitness_score) {
-          best_fitness_score = fitness_score;
-          best_transformation = test_registration->getFinalTransformation();
-          best_has_converged = true;
-          best_z_offset = z_offset;
-          
-          RCLCPP_DEBUG(get_logger(), "Stage 1 Search %d/%d: z=%.2f, score=%.4f (best)", 
-            search_count, total_searches, z_offset, fitness_score);
-        }
-      }
-    }
-  } else {
-    // If not searching z-axis, use initial guess as baseline
-    best_z_offset = 0.0;
-    RCLCPP_DEBUG(get_logger(), "Stage 1 skipped (z-axis search disabled)");
-  }
-  
-  // Stage 2: Search angles only at the best z position
-  if (enable_angle_search_) {
-    RCLCPP_DEBUG(get_logger(), "Stage 2: Searching angles at best z=%.2f", best_z_offset);
-    
-    for (int a = 0; a < angle_search_steps_; ++a) {
-      // Skip the first angle (0 offset) as it was already tested in Stage 1
-      if (a == (angle_search_steps_ - 1) / 2) {
-        continue;
-      }
-      
-      search_count++;
-      
-      // Calculate yaw angle offset
-      double yaw_offset = -angle_search_range_ + a * angle_step_size;
-      
-      // Create transformation matrix with best z offset and angle offset
-      Eigen::Matrix4f test_guess = initial_guess;
-      test_guess(0,3) = initial_position.x();  // Keep x unchanged
-      test_guess(1,3) = initial_position.y();  // Keep y unchanged
-      test_guess(2,3) = initial_position.z() + best_z_offset;  // Use best z offset
-      
-      // Apply yaw rotation (only modify yaw, keep roll and pitch)
-      Eigen::AngleAxisf roll_angle(initial_euler(0), Eigen::Vector3f::UnitX());
-      Eigen::AngleAxisf pitch_angle(initial_euler(1), Eigen::Vector3f::UnitY());
-      Eigen::AngleAxisf yaw_angle(initial_euler(2) + yaw_offset, Eigen::Vector3f::UnitZ());
-      
-      Eigen::Matrix3f rotation_matrix = (yaw_angle * pitch_angle * roll_angle).toRotationMatrix();
-      test_guess.block<3,3>(0,0) = rotation_matrix;
-      
-      // Create a new registration object for each test to avoid state issues
-      boost::shared_ptr<pcl::Registration<pcl::PointXYZI, pcl::PointXYZI>> test_registration;
-      
-      if (registration_method_ == "NDT_OMP") {
-        pclomp::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI>::Ptr ndt_omp(
-          new pclomp::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI>());
-        ndt_omp->setStepSize(ndt_step_size_);
-        ndt_omp->setResolution(ndt_resolution_);
-        ndt_omp->setTransformationEpsilon(transform_epsilon_);
-        if (ndt_num_threads_ > 0) {
-          ndt_omp->setNumThreads(ndt_num_threads_);
-        }
-        ndt_omp->setMaximumIterations(ndt_max_iterations_);
-        ndt_omp->setInputTarget(registration_->getInputTarget());
-        test_registration = ndt_omp;
-      } else if (registration_method_ == "GICP_OMP") {
-        pclomp::GeneralizedIterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI>::Ptr gicp_omp(
-          new pclomp::GeneralizedIterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI>());
-        gicp_omp->setTransformationEpsilon(transform_epsilon_);
-        gicp_omp->setMaximumIterations(ndt_max_iterations_);
-        gicp_omp->setInputTarget(registration_->getInputTarget());
-        test_registration = gicp_omp;
-      } else {
-        // Fallback to standard registration
-        test_registration = registration_;
-      }
-      
-      // Perform registration with this initial guess
-      test_registration->setInputSource(cloud_ptr);
-      pcl::PointCloud<pcl::PointXYZI>::Ptr output_cloud(new pcl::PointCloud<pcl::PointXYZI>);
-      test_registration->align(*output_cloud, test_guess);
-      
-      if (test_registration->hasConverged()) {
-        double fitness_score = test_registration->getFitnessScore();
-        
-        if (fitness_score < best_fitness_score) {
-          best_fitness_score = fitness_score;
-          best_transformation = test_registration->getFinalTransformation();
-          best_has_converged = true;
-          
-          RCLCPP_DEBUG(get_logger(), "Stage 2 Search %d/%d: z=%.2f, yaw=%.2f deg, score=%.4f (best)", 
-            search_count, total_searches, best_z_offset, yaw_offset * 180.0 / M_PI, fitness_score);
-        }
-      }
-    }
-  }
-  
-  // If no valid result found (still max value), use initial guess with standard registration
-  if (best_fitness_score >= std::numeric_limits<double>::max() / 2.0) {
-    RCLCPP_WARN(get_logger(), "No valid result found in search, using initial guess with standard registration");
-    registration_->setInputSource(cloud_ptr);
-    pcl::PointCloud<pcl::PointXYZI>::Ptr output_cloud(new pcl::PointCloud<pcl::PointXYZI>);
-    registration_->align(*output_cloud, initial_guess);
-    best_transformation = registration_->getFinalTransformation();
-    best_has_converged = registration_->hasConverged();
-    best_fitness_score = registration_->getFitnessScore();
-  }
-  
-  RCLCPP_DEBUG(this->get_logger(), "Best fitness score after search: %lf", best_fitness_score);
-  result.transformation = best_transformation;
-  result.has_converged = best_has_converged;
-  result.fitness_score = best_fitness_score;
-  return result;
 }

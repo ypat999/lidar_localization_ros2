@@ -6,8 +6,8 @@
 #include <thread>
 #include <utility>
 
-#include <pcl/registration/ndt.h>
-#include <pcl/registration/gicp.h>
+#include <pcl/registration/registration.h>
+#include <pcl/filters/voxel_grid.h>
 #include <pcl/io/ply_io.h>
 
 #include <tf2/transform_datatypes.h>
@@ -29,13 +29,6 @@
 #include "sensor_msgs/msg/imu.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
-
-#include <pclomp/ndt_omp.h>
-#include <pclomp/ndt_omp_impl.hpp>
-#include <pclomp/voxel_grid_covariance_omp.h>
-#include <pclomp/voxel_grid_covariance_omp_impl.hpp>
-#include <pclomp/gicp_omp.h>
-#include <pclomp/gicp_omp_impl.hpp>
 
 #include "lidar_localization/lidar_undistortion.hpp"
 
@@ -128,7 +121,8 @@ public:
   double initial_pose_qw_;
 
   bool use_odom_{false};
-  double last_odom_received_time_{0.0};
+  bool last_odom_pose_valid_{false};
+  geometry_msgs::msg::Pose last_odom_pose_;  // cached odom->base pose for distance accumulation
   bool use_imu_{false};
   bool enable_debug_{false};
   bool enable_map_odom_tf_{false};
@@ -137,6 +131,13 @@ public:
 
   int ndt_num_threads_;
   int ndt_max_iterations_;
+
+  // GICP-specific parameters
+  double gicp_corr_dist_threshold_{5.0};
+  double gicp_rotation_epsilon_{0.002};
+  int gicp_k_correspondences_{20};
+  int gicp_max_optimizer_iterations_{20};
+  double gicp_epsilon_{0.01};
 
   // imu
   LidarUndistortion lidar_undistortion_;
@@ -155,6 +156,9 @@ public:
   int initial_localization_accumulate_frames_{10};
   pcl::PointCloud<pcl::PointXYZI>::Ptr accumulated_cloud_ptr_{new pcl::PointCloud<pcl::PointXYZI>};
   int accumulated_frame_count_{0};
+  
+  // Odom-based displacement tracking（基于odom的位移累计）
+  double accumulated_odom_distance_{0.0};
   
   // Angle search optimization parameters
   bool enable_angle_search_{true};       // Enable angle search for better rotation convergence

@@ -9,7 +9,9 @@ if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 14)
 endif()
 
-SET(CMAKE_CXX_FLAGS "-O2 -g ${CMAKE_CXX_FLAGS}")
+SET(CMAKE_CXX_FLAGS "-O2 -g1 ${CMAKE_CXX_FLAGS}")
+
+add_definitions(-DPCL_NO_PRECOMPILE)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
@@ -34,6 +36,7 @@ endif()
 
 add_library(lidar_localization_component SHARED
 src/lidar_localization_component.cpp
+src/registration_impl.cpp
 )
 
 ament_target_dependencies(lidar_localization_component
