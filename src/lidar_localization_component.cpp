@@ -677,7 +677,7 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
     accumulated_frame_count_++;
 
     if (accumulated_frame_count_ < initial_localization_accumulate_frames_) {
-      RCLCPP_INFO(get_logger(), "Accumulating frames for initial localization: %d/%d (points: %lu)",
+      RCLCPP_DEBUG(get_logger(), "Accumulating frames for initial localization: %d/%d (points: %lu)",
                   accumulated_frame_count_, initial_localization_accumulate_frames_,
                   accumulated_cloud_ptr_->size());
       last_scan_ptr_ = msg;
@@ -931,7 +931,7 @@ bool PCLLocalization::shouldUpdateLocalization(const geometry_msgs::msg::Pose& c
   }
   
   if (accumulated_odom_distance_ > displacement_threshold_) {
-    RCLCPP_INFO(get_logger(), "Accumulated odom distance %.3f m exceeds threshold %.3f m, triggering localization",
+    RCLCPP_DEBUG(get_logger(), "Accumulated odom distance %.3f m exceeds threshold %.3f m, triggering localization",
       accumulated_odom_distance_, displacement_threshold_);
     accumulated_odom_distance_ = 0.0;
     return true;
