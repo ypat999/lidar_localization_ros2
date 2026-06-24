@@ -47,7 +47,7 @@ def generate_launch_description():
         package='lidar_localization_ros2',
         executable='lidar_localization_node',
         parameters=[localization_param_dir],
-        remappings=[('cloud','/rkbot/lio/cloud_world'),
+        remappings=[('cloud','/rkbot/lio/body/cloud'),
                     ('imu','/rkbot/livox/imu'),
                     ('odom','/rkbot/lio/odom'),
                     ('initialpose','/initialpose')],

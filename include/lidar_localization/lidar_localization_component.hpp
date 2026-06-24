@@ -123,8 +123,7 @@ public:
   double initial_pose_qw_;
 
   bool use_odom_{false};
-  bool last_odom_pose_valid_{false};
-  geometry_msgs::msg::Pose last_odom_pose_;  // cached odom->base pose for distance accumulation
+  geometry_msgs::msg::Pose odom_at_localization_;  // odom->base pose at last successful localization
   bool use_imu_{false};
   bool enable_debug_{false};
   bool enable_map_odom_tf_{false};

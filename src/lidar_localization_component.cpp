@@ -504,19 +504,25 @@ void PCLLocalization::odomReceived(const nav_msgs::msg::Odometry::ConstSharedPtr
     return;
   }
   
-  // Use TF composition to update pose in map frame:
-  //   map->base = map->odom * odom->base
-  // This replaces the old twist-integration approach.
+  // Update init_guess for NDT by composing map->odom * odom->base from TF tree.
+  // This is only used as the initial guess for the next NDT alignment — it does NOT
+  // affect the published map->odom transform (that comes from NDT output).
+  // When TF timestamps are out of sync, we fall back to the latest available transform
+  // rather than discarding the update entirely.
   
-  // Step 1: Look up odom->base transform (published by odometry source, e.g. LIO-SAM)
+  // Step 1: Look up odom->base transform
   geometry_msgs::msg::TransformStamped odom_to_base_stamped;
   try {
     odom_to_base_stamped = tfbuffer_.lookupTransform(
       odom_frame_id_, base_frame_id_, msg->header.stamp, rclcpp::Duration::from_seconds(0.1));
   } catch (const tf2::TransformException & ex) {
-    RCLCPP_WARN(this->get_logger(), "odomReceived: Could not get transform %s -> %s: %s",
-      odom_frame_id_.c_str(), base_frame_id_.c_str(), ex.what());
-    return;
+    // Fallback to latest available transform
+    try {
+      odom_to_base_stamped = tfbuffer_.lookupTransform(
+        odom_frame_id_, base_frame_id_, tf2::TimePointZero);
+    } catch (const tf2::TransformException &) {
+      return;  // No TF data at all, skip this odom message
+    }
   }
   
   // Step 2: Look up map->odom transform (published by this node after each localization)
@@ -524,56 +530,31 @@ void PCLLocalization::odomReceived(const nav_msgs::msg::Odometry::ConstSharedPtr
   bool map_to_odom_valid = true;
   try {
     map_to_odom_stamped = tfbuffer_.lookupTransform(
-      global_frame_id_, odom_frame_id_, msg->header.stamp, rclcpp::Duration::from_seconds(0.1));
-  } catch (const tf2::TransformException & ex) {
-    // map->odom not yet available (no successful localization yet)
+      global_frame_id_, odom_frame_id_, tf2::TimePointZero);
+  } catch (const tf2::TransformException &) {
     map_to_odom_valid = false;
   }
   
-  if (map_to_odom_valid) {
-    // Only compose map->base if initial localization is done.
-    // During initial localization (accumulating frames), the initial pose from user
-    // must not be overwritten by stale map->odom TF from a previous session.
-    if (!first_localization_done_) {
-      // Still accumulating, skip odom-based pose update
-    } else {
-      // Compose: map->base = map->odom * odom->base
-      tf2::Transform map_to_odom_tf, odom_to_base_tf, map_to_base_tf;
-      tf2::fromMsg(map_to_odom_stamped.transform, map_to_odom_tf);
-      tf2::fromMsg(odom_to_base_stamped.transform, odom_to_base_tf);
-      map_to_base_tf = map_to_odom_tf * odom_to_base_tf;
-      
-      corrent_pose_with_cov_stamped_ptr_->header.stamp = msg->header.stamp;
-      corrent_pose_with_cov_stamped_ptr_->pose.pose.position.x = map_to_base_tf.getOrigin().x();
-      corrent_pose_with_cov_stamped_ptr_->pose.pose.position.y = map_to_base_tf.getOrigin().y();
-      corrent_pose_with_cov_stamped_ptr_->pose.pose.position.z = map_to_base_tf.getOrigin().z();
-      corrent_pose_with_cov_stamped_ptr_->pose.pose.orientation = tf2::toMsg(map_to_base_tf.getRotation());
-    }
-  } else {
-    // No map->odom yet, use odom->base directly as fallback (only if initial localization done)
-    if (first_localization_done_) {
-      corrent_pose_with_cov_stamped_ptr_->header.stamp = msg->header.stamp;
-      corrent_pose_with_cov_stamped_ptr_->pose.pose.position.x = odom_to_base_stamped.transform.translation.x;
-      corrent_pose_with_cov_stamped_ptr_->pose.pose.position.y = odom_to_base_stamped.transform.translation.y;
-      corrent_pose_with_cov_stamped_ptr_->pose.pose.position.z = odom_to_base_stamped.transform.translation.z;
-      corrent_pose_with_cov_stamped_ptr_->pose.pose.orientation = odom_to_base_stamped.transform.rotation;
-    }
+  if (map_to_odom_valid && first_localization_done_) {
+    // Compose: map->base = map->odom * odom->base
+    tf2::Transform map_to_odom_tf, odom_to_base_tf, map_to_base_tf;
+    tf2::fromMsg(map_to_odom_stamped.transform, map_to_odom_tf);
+    tf2::fromMsg(odom_to_base_stamped.transform, odom_to_base_tf);
+    map_to_base_tf = map_to_odom_tf * odom_to_base_tf;
+    
+    corrent_pose_with_cov_stamped_ptr_->header.stamp = msg->header.stamp;
+    corrent_pose_with_cov_stamped_ptr_->pose.pose.position.x = map_to_base_tf.getOrigin().x();
+    corrent_pose_with_cov_stamped_ptr_->pose.pose.position.y = map_to_base_tf.getOrigin().y();
+    corrent_pose_with_cov_stamped_ptr_->pose.pose.position.z = map_to_base_tf.getOrigin().z();
+    corrent_pose_with_cov_stamped_ptr_->pose.pose.orientation = tf2::toMsg(map_to_base_tf.getRotation());
   }
   
-  // Accumulate odom distance from odom->base translation delta
-  if (last_odom_pose_valid_) {
-    double dx = odom_to_base_stamped.transform.translation.x - last_odom_pose_.position.x;
-    double dy = odom_to_base_stamped.transform.translation.y - last_odom_pose_.position.y;
-    double dz = odom_to_base_stamped.transform.translation.z - last_odom_pose_.position.z;
-    accumulated_odom_distance_ += std::sqrt(dx*dx + dy*dy + dz*dz);
-  }
-  
-  // Cache current odom->base pose for next iteration
-  last_odom_pose_.position.x = odom_to_base_stamped.transform.translation.x;
-  last_odom_pose_.position.y = odom_to_base_stamped.transform.translation.y;
-  last_odom_pose_.position.z = odom_to_base_stamped.transform.translation.z;
-  last_odom_pose_.orientation = odom_to_base_stamped.transform.rotation;
-  last_odom_pose_valid_ = true;
+  // Compare current odom position against odom position at last localization (absolute, not accumulated)
+  // Accumulated delta is fragile when TF timestamps are out of sync, causing artificial drift.
+  double dx = odom_to_base_stamped.transform.translation.x - odom_at_localization_.position.x;
+  double dy = odom_to_base_stamped.transform.translation.y - odom_at_localization_.position.y;
+  double dz = odom_to_base_stamped.transform.translation.z - odom_at_localization_.position.z;
+  accumulated_odom_distance_ = std::sqrt(dx*dx + dy*dy + dz*dz);
 }
 
 void PCLLocalization::imuReceived(const sensor_msgs::msg::Imu::ConstSharedPtr msg)
@@ -816,6 +797,12 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
   tf2::Transform odom_to_base_link_tf;
   tf2::fromMsg(odom_to_base_link_msg.transform, odom_to_base_link_tf);
 
+  // Update odom reference for displacement check
+  odom_at_localization_.position.x = odom_to_base_link_msg.transform.translation.x;
+  odom_at_localization_.position.y = odom_to_base_link_msg.transform.translation.y;
+  odom_at_localization_.position.z = odom_to_base_link_msg.transform.translation.z;
+  odom_at_localization_.orientation = odom_to_base_link_msg.transform.rotation;
+
   tf2::Transform map_to_odom_tf = map_to_base_link_tf * odom_to_base_link_tf.inverse();
   geometry_msgs::msg::TransformStamped map_to_odom_stamped;
   map_to_odom_stamped.header.stamp = msg->header.stamp;
@@ -932,14 +919,12 @@ bool PCLLocalization::shouldUpdateLocalization(const geometry_msgs::msg::Pose& c
   // Force first localization to execute
   if (!first_localization_done_) {
     first_localization_done_ = true;
-    accumulated_odom_distance_ = 0.0;
     return true;
   }
   
   if (accumulated_odom_distance_ > displacement_threshold_) {
-    RCLCPP_DEBUG(get_logger(), "Accumulated odom distance %.3f m exceeds threshold %.3f m, triggering localization",
+    RCLCPP_DEBUG(get_logger(), "Odom displacement %.3f m from last localization exceeds threshold %.3f m, triggering localization",
       accumulated_odom_distance_, displacement_threshold_);
-    accumulated_odom_distance_ = 0.0;
     return true;
   }
   
