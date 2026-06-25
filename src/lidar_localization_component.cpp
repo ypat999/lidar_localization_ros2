@@ -412,13 +412,16 @@ void PCLLocalization::initialPoseReceived(const geometry_msgs::msg::PoseWithCova
   initialpose_recieved_ = true;
   corrent_pose_with_cov_stamped_ptr_ = msg;
   
-  // Initialize last localization position and reset first localization flag
+  // Initialize last localization position and force next cloud to trigger NDT
   last_localization_x_ = msg->pose.pose.position.x;
   last_localization_y_ = msg->pose.pose.position.y;
   last_localization_z_ = msg->pose.pose.position.z;
-  first_localization_done_ = false;  // Force first localization on next cloud
-  accumulated_cloud_ptr_->clear();
-  accumulated_frame_count_ = 0;
+  first_localization_done_ = false;  // Force NDT on next cloud
+  
+  // Do NOT clear accumulated_cloud_ptr_ — accumulation data should persist.
+  // Displacement is now computed as absolute distance from odom_at_localization_
+  // (set after each successful localization), so repeated initialPose won't
+  // cause continuous NDT when the robot is stationary.
   
   pose_pub_->publish(*corrent_pose_with_cov_stamped_ptr_);
 

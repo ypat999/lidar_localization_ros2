@@ -20,6 +20,19 @@ def generate_launch_description():
 
     ld = launch.LaunchDescription()
 
+    # 启动参数声明
+    cloud_topic = launch.substitutions.LaunchConfiguration(
+        'cloud_topic', default='/rkbot/lio/body/cloud')
+    odom_topic = launch.substitutions.LaunchConfiguration(
+        'odom_topic', default='/rkbot/lio/odom')
+
+    ld.add_action(launch.actions.DeclareLaunchArgument(
+        'cloud_topic', default_value='/rkbot/lio/body/cloud',
+        description='Point cloud topic for lidar localization'))
+    ld.add_action(launch.actions.DeclareLaunchArgument(
+        'odom_topic', default_value='/rkbot/lio/odom',
+        description='Odometry topic for lidar localization'))
+
     lidar_tf = launch_ros.actions.Node(
         name='lidar_tf',
         package='tf2_ros',
@@ -47,9 +60,9 @@ def generate_launch_description():
         package='lidar_localization_ros2',
         executable='lidar_localization_node',
         parameters=[localization_param_dir],
-        remappings=[('cloud','/rkbot/lio/body/cloud'),
+        remappings=[('cloud', cloud_topic),
                     ('imu','/rkbot/livox/imu'),
-                    ('odom','/rkbot/lio/odom'),
+                    ('odom', odom_topic),
                     ('initialpose','/initialpose')],
         prefix=['taskset -c 5,6'],   # 绑定 CPU 4
         output='screen')
