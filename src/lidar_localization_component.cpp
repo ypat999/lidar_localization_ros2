@@ -625,7 +625,7 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
     try {
       base_to_lidar_stamped = tfbuffer_.lookupTransform(
           base_frame_id_, msg->header.frame_id, msg->header.stamp,
-          rclcpp::Duration::from_seconds(0.1));
+          rclcpp::Duration::from_seconds(0.5));
     } catch (const tf2::TransformException & ex) {
       RCLCPP_ERROR(
           this->get_logger(), "Could not transform %s to %s: %s",

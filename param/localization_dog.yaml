@@ -1,7 +1,7 @@
 /**:
     ros__parameters:
       registration_method: "GICP_OMP"   #"GICP_OMP"     "NDT_OMP"
-      score_threshold: 0.5              # Reject matches with score > threshold（拒绝分数高于此值的匹配）
+      score_threshold: 0.1              # Reject matches with score > threshold（拒绝分数高于此值的匹配）
       ndt_resolution: 0.5             # Voxel resolution for NDT (balance speed vs accuracy)（NDT体素分辨率）
       ndt_step_size: 0.1               # Step size for NDT optimization（NDT优化步长）
       ndt_num_threads: 2                 # More threads for faster processing

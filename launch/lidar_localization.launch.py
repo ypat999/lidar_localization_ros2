@@ -50,7 +50,7 @@ def generate_launch_description():
         remappings=[('/cloud','/lio/body/cloud'),
                     ('/imu','/livox/imu'),
                     ('/odom','/lio/odom')],
-        prefix=['taskset -c 0,1,2,3'],   # 绑定 CPU 4
+        prefix=['taskset -c 5,6'],   # 绑定 CPU 5,6
         output='screen')
 
     to_inactive = launch.actions.EmitEvent(

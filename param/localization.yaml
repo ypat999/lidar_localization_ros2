@@ -1,17 +1,24 @@
 /**:
     ros__parameters:
-      registration_method: "NDT_OMP"   #"GICP_OMP" 
-      score_threshold: 0.00001              # Lower threshold for better accuracy
-      ndt_resolution: 0.15               # Higher resolution for better accuracy
-      ndt_step_size: 0.15               # Larger step size for better rotation convergence
-      ndt_num_threads: 4                 # More threads for faster processing
-      ndt_max_iterations: 256            # More iterations for better convergence
-      transform_epsilon: 0.0001         # Relaxed epsilon for better convergence
+      registration_method: GICP_OMP       #"NDT_OMP"   #"GICP_OMP" 
+      score_threshold: 0.1              # Lower threshold for better accuracy
+      ndt_resolution: 0.5               # Higher resolution for better accuracy
+      ndt_step_size: 0.1               # Larger step size for better rotation convergence
+      ndt_num_threads: 2                 # More threads for faster processing
+      ndt_max_iterations: 32            # More iterations for better convergence
+      transform_epsilon: 0.001         # Convergence epsilon for transformation（变换收敛精度）
+
+      # GICP-specific parameters (only used when registration_method="GICP_OMP")
+      gicp_corr_dist_threshold: 3.0    # Max correspondence distance (m)（最大对应点距离）
+      gicp_rotation_epsilon: 0.01      # Rotation convergence epsilon (rad)（旋转收敛精度）
+      gicp_k_correspondences: 30       # Neighbors for covariance (lower for sparse maps)（协方差计算邻域数，稀疏地图用小值）
+      gicp_max_optimizer_iterations: 32 # Inner BFGS max iterations（内部优化器最大迭代次数）
+      gicp_epsilon: 0.001               # Tikhonov regularization for covariance inversion (higher = more stable on sparse maps)（协方差正则化，稀疏地图用较大值0.01~0.05）
 
       voxel_leaf_size: 0.1               # Smaller voxel size for better detail
       scan_max_range: 40.0               # Extended range for better matching
-      scan_min_range: 0.5
-      scan_period: 0.05
+      scan_min_range: 0.1
+      scan_period: 0.1
       use_pcd_map: true
       map_path: "/home/cat/slam_data/3d_map/3dmap.pcd" #"/home/ywj/pcd/test.pcd"
       set_initial_pose: true
@@ -33,17 +40,17 @@
       pose_publish_frequency: 10.0
       
       # New parameters for improved localization
-      displacement_threshold: 5.0        # Only update when displacement > 0.3m（位移触发阈值）
-      search_radius: 1.0                 # Search radius around initial point（搜索半径）
+      displacement_threshold: 3.0        # Only update when displacement > 0.3m（位移触发阈值）
+      search_radius: 2.0                 # Search radius around initial point（搜索半径）
       search_grid_size: 5                # Grid points per dimension for search（搜索网格密度）
       enable_displacement_check: true    # Enable displacement-based triggering（启用位移检查）
-      enable_search_optimization: true   # Enable two-stage search for optimal localization（启用两阶段搜索优化）
+      enable_search_optimization: false   # Enable two-stage search for optimal localization（启用两阶段搜索优化）
       
       # New parameters for map downsampling（地图降采样参数）
       map_downsample_leaf_size: 0.5       # Leaf size for map downsampling in meters（地图降采样的leaf大小，单位：米）
       
       # New parameters for Z-axis search（Z轴搜索参数）
-      enable_z_axis_search: true        # Enable Z-axis search for all triggers（启用Z轴搜索，对所有触发类型生效）
+      enable_z_axis_search: false        # Enable Z-axis search for all triggers（启用Z轴搜索，对所有触发类型生效）
       
       # Two-stage search strategy:
       # Stage 1: Search Z-axis (if enabled, 5 times)
@@ -55,13 +62,13 @@
       # 总是执行角度搜索以获得更好的旋转收敛
       
       # New parameters for angle search optimization（角度搜索优化参数）
-      enable_angle_search: true          # Enable angle search for better rotation convergence（启用角度搜索）
+      enable_angle_search: false          # Enable angle search for better rotation convergence（启用角度搜索）
       angle_search_range: 0.2          # Angle search range in radians (±20 degrees)（角度搜索范围）
       angle_search_steps: 5              # Number of angle steps to try（角度搜索步数）
       
       # New parameters for dynamic score threshold mechanism
-      enable_dynamic_threshold: true     # Enable dynamic threshold mechanism（启用动态阈值机制）
-      dynamic_threshold_factor: 2.0      # Factor for dynamic threshold (new score must be <= current * factor)（动态阈值因子）
+      enable_dynamic_threshold: false     # Enable dynamic threshold mechanism（启用动态阈值机制）
+      dynamic_threshold_factor: 3.0      # Factor for dynamic threshold (new score must be <= current * factor)（动态阈值因子）
       
       # Initial localization accumulation（初始定位多帧叠加参数）
-      initial_localization_accumulate_frames: 10  # Number of frames to accumulate for initial localization（初始定位叠加帧数，mid360非重复扫描建议10帧以上）
+      initial_localization_accumulate_frames: 5  # Number of frames to accumulate for initial localization（初始定位叠加帧数，mid360非重复扫描建议10帧以上）
