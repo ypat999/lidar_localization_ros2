@@ -13,6 +13,7 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
   declare_parameter("global_frame_id", "map");
   declare_parameter("odom_frame_id", "odom");
   declare_parameter("base_frame_id", "base_link");
+  declare_parameter("map_topic", "map3d");
   declare_parameter("enable_map_odom_tf", false);
   declare_parameter("registration_method", "NDT");
   declare_parameter("score_threshold", 0.0001);
@@ -350,6 +351,8 @@ void PCLLocalization::initializeParameters()
   RCLCPP_INFO(get_logger(),"gicp_k_correspondences: %d", gicp_k_correspondences_);
   RCLCPP_INFO(get_logger(),"gicp_max_optimizer_iterations: %d", gicp_max_optimizer_iterations_);
   RCLCPP_INFO(get_logger(),"gicp_epsilon: %lf", gicp_epsilon_);
+  get_parameter("map_topic", map_topic_);
+  RCLCPP_INFO(get_logger(),"map_topic: %s", map_topic_.c_str());
 }
 
 void PCLLocalization::initializePubSub()
@@ -377,7 +380,7 @@ void PCLLocalization::initializePubSub()
     std::bind(&PCLLocalization::initialPoseReceived, this, std::placeholders::_1));
 
   map_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
-    "map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
+    map_topic_, rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
     std::bind(&PCLLocalization::mapReceived, this, std::placeholders::_1));
 
   odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(

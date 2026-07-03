@@ -102,6 +102,7 @@ public:
   std::string global_frame_id_;
   std::string odom_frame_id_;
   std::string base_frame_id_;
+  std::string map_topic_;
   std::string registration_method_;
   double scan_max_range_;
   double scan_min_range_;
