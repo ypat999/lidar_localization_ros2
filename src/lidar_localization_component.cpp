@@ -463,6 +463,9 @@ void PCLLocalization::mapReceived(const sensor_msgs::msg::PointCloud2::SharedPtr
 
 void PCLLocalization::odomReceived(const nav_msgs::msg::Odometry::ConstSharedPtr msg)
 {
+  // 生命周期节点激活前不处理消息，避免未激活的 LifecyclePublisher 触发 WARN
+  if (!pose_pub_->is_activated()) return;
+
   if (!use_odom_) {
     RCLCPP_WARN(get_logger(), "use_odom is disabled, ignoring odom data");
     return;
@@ -876,6 +879,9 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
 
 void PCLLocalization::timerPublishPose()
 {
+  // 生命周期节点激活前不发布位姿
+  if (!pose_pub_->is_activated()) return;
+
   geometry_msgs::msg::PoseWithCovarianceStamped pose_msg;
   pose_msg.header.stamp = now();
   pose_msg.header.frame_id = global_frame_id_;
