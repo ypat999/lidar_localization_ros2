@@ -49,7 +49,7 @@ def generate_launch_description():
         parameters=[localization_param_dir],
         remappings=[('/cloud','/lio/body/cloud'),
                     ('/imu','/livox/imu'),
-                    ('/odom','/lio/odom')],
+                    ('/odom','/lio/robo/odom')],
         prefix=['taskset -c 5,6'],   # 绑定 CPU 5,6
         output='screen')
 

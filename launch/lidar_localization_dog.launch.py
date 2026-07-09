@@ -24,13 +24,13 @@ def generate_launch_description():
     cloud_topic = launch.substitutions.LaunchConfiguration(
         'cloud_topic', default='/rkbot/lio/body/cloud')
     odom_topic = launch.substitutions.LaunchConfiguration(
-        'odom_topic', default='/rkbot/lio/odom')
+        'odom_topic', default='/rkbot/lio/robo/odom')
 
     ld.add_action(launch.actions.DeclareLaunchArgument(
         'cloud_topic', default_value='/rkbot/lio/body/cloud',
         description='Point cloud topic for lidar localization'))
     ld.add_action(launch.actions.DeclareLaunchArgument(
-        'odom_topic', default_value='/rkbot/lio/odom',
+        'odom_topic', default_value='/rkbot/lio/robo/odom',
         description='Odometry topic for lidar localization'))
 
     lidar_tf = launch_ros.actions.Node(
