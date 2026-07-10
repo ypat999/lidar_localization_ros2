@@ -171,7 +171,8 @@ public:
   bool enable_z_axis_search_{false};     // Enable Z-axis search for all triggers
   
   // Dynamic score threshold mechanism
-  double current_fitness_score_{std::numeric_limits<double>::max()};  // Track current best fitness score
+  double current_fitness_score_{std::numeric_limits<double>::max()};  // Track current fitness score
+  double best_fitness_score_{std::numeric_limits<double>::max()};     // Track minimum fitness score ever seen
   bool enable_dynamic_threshold_{true};  // Enable dynamic threshold mechanism
   double dynamic_threshold_factor_{2.0};  // Factor for dynamic threshold (new score must be <= current * factor)
   
