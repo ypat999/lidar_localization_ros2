@@ -745,10 +745,8 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
   }
   
   if (fitness_score > effective_threshold && !first_localization_done_) {
-    RCLCPP_INFO(get_logger(), "Initial localization REJECTED: fitness %lf > threshold %lf%s",
-                fitness_score, effective_threshold,
-                first_localization_done_ ? " (ongoing)" : "");
-    first_localization_done_ = true;
+    RCLCPP_INFO(get_logger(), "Initial localization REJECTED: fitness %lf > threshold %lf",
+                fitness_score, effective_threshold);
     accumulated_cloud_ptr_->clear();
     accumulated_frame_count_ = 0;
     return;
