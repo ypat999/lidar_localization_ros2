@@ -743,11 +743,10 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
     }
   }
   
-  if (fitness_score > effective_threshold && !first_localization_done_) {
-    RCLCPP_INFO(get_logger(), "Initial localization REJECTED: fitness %lf > threshold %lf%s",
+  if (fitness_score > effective_threshold) {
+    RCLCPP_INFO(get_logger(), "Localization REJECTED: fitness %lf > threshold %lf%s",
                 fitness_score, effective_threshold,
                 first_localization_done_ ? " (ongoing)" : "");
-    first_localization_done_ = true;
     return;
   }
   
@@ -755,7 +754,11 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
   current_fitness_score_ = fitness_score;
   if (fitness_score < best_fitness_score_) {
     best_fitness_score_ = fitness_score;
-    RCLCPP_INFO(get_logger(), "New minimum fitness score: %lf", fitness_score);
+    if (fitness_score <= score_threshold_) {
+      RCLCPP_INFO(get_logger(), "New minimum fitness score: %lf", fitness_score);
+    } else {
+      RCLCPP_DEBUG(get_logger(), "Best (unacceptable) fitness so far: %lf", fitness_score);
+    }
   }
   
   Eigen::Matrix3d rot_mat = final_transformation.block<3, 3>(0, 0).cast<double>();
