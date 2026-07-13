@@ -257,7 +257,6 @@ void PCLLocalization::initializeParameters()
   get_parameter("base_frame_id", base_frame_id_);
   get_parameter("enable_map_odom_tf", enable_map_odom_tf_);
   get_parameter("registration_method", registration_method_);
-  get_parameter("score_threshold", score_threshold_);
   get_parameter("initial_score_threshold", initial_score_threshold_);
   get_parameter("ongoing_score_threshold", ongoing_score_threshold_);
   best_fitness_score_ = ongoing_score_threshold_;  // 初始化为严格阈值，只追踪低于"严格阈值"的好分数
