@@ -172,7 +172,7 @@ public:
   
   // Dynamic score threshold mechanism
   double current_fitness_score_{std::numeric_limits<double>::max()};  // Track current fitness score
-  double best_fitness_score_{std::numeric_limits<double>::max()};     // Track minimum fitness score ever seen
+  double best_fitness_score_{0.0};                                    // Track minimum fitness score ever seen (inited to threshold in constructor)
   bool enable_dynamic_threshold_{true};  // Enable dynamic threshold mechanism
   double dynamic_threshold_factor_{2.0};  // Factor for dynamic threshold (new score must be <= current * factor)
   

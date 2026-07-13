@@ -256,6 +256,7 @@ void PCLLocalization::initializeParameters()
   get_parameter("enable_map_odom_tf", enable_map_odom_tf_);
   get_parameter("registration_method", registration_method_);
   get_parameter("score_threshold", score_threshold_);
+  best_fitness_score_ = score_threshold_;  // 初始化为阈值，只追踪低于阈值的"好"分数
   get_parameter("ndt_resolution", ndt_resolution_);
   get_parameter("ndt_step_size", ndt_step_size_);
   get_parameter("ndt_num_threads", ndt_num_threads_);
@@ -747,6 +748,9 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
     RCLCPP_INFO(get_logger(), "Localization REJECTED: fitness %lf > threshold %lf%s",
                 fitness_score, effective_threshold,
                 first_localization_done_ ? " (ongoing)" : "");
+    if (!first_localization_done_) {
+      first_localization_done_ = true;
+    }
     return;
   }
   
@@ -754,11 +758,7 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
   current_fitness_score_ = fitness_score;
   if (fitness_score < best_fitness_score_) {
     best_fitness_score_ = fitness_score;
-    if (fitness_score <= score_threshold_) {
-      RCLCPP_INFO(get_logger(), "New minimum fitness score: %lf", fitness_score);
-    } else {
-      RCLCPP_DEBUG(get_logger(), "Best (unacceptable) fitness so far: %lf", fitness_score);
-    }
+    RCLCPP_INFO(get_logger(), "New minimum fitness score: %lf", fitness_score);
   }
   
   Eigen::Matrix3d rot_mat = final_transformation.block<3, 3>(0, 0).cast<double>();
