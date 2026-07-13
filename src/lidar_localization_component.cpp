@@ -743,10 +743,11 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
     }
   }
   
-  if (fitness_score > effective_threshold) {
-    RCLCPP_WARN(get_logger(), "Initial localization REJECTED: fitness %lf > threshold %lf%s",
+  if (fitness_score > effective_threshold && !first_localization_done_) {
+    RCLCPP_INFO(get_logger(), "Initial localization REJECTED: fitness %lf > threshold %lf%s",
                 fitness_score, effective_threshold,
                 first_localization_done_ ? " (ongoing)" : "");
+    first_localization_done_ = true;
     return;
   }
   
@@ -988,6 +989,6 @@ void PCLLocalization::performanceTimerCallback()
   }
   
   if (icp_performance_stats_.empty() && ndt_performance_stats_.empty()) {
-    RCLCPP_INFO(get_logger(), "No ICP/NDT performance data in the last 30 seconds");
+    RCLCPP_DEBUG(get_logger(), "No ICP/NDT performance data in the last 30 seconds");
   }
 }
