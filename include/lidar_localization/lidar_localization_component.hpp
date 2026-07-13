@@ -108,6 +108,8 @@ public:
   double scan_min_range_;
   double scan_period_;
   double score_threshold_;
+  double initial_score_threshold_{2.0};   // 初始定位阈值（宽松）
+  double ongoing_score_threshold_{0.1};   // 持续定位阈值（严格）
   double ndt_resolution_;
   double ndt_step_size_;
   double transform_epsilon_;

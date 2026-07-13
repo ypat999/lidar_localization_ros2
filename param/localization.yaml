@@ -2,6 +2,8 @@
     ros__parameters:
       registration_method: GICP_OMP       #"NDT_OMP"   #"GICP_OMP" 
       score_threshold: 0.08              # Lower threshold for better accuracy
+      initial_score_threshold: 2.0        # 初始定位宽松阈值（可接受较差匹配）
+      ongoing_score_threshold: 0.08       # 持续定位严格阈值（只接受精确匹配）
       ndt_resolution: 0.5               # Higher resolution for better accuracy
       ndt_step_size: 0.1               # Larger step size for better rotation convergence
       ndt_num_threads: 2                 # More threads for faster processing

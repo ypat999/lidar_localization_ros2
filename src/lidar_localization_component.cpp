@@ -123,6 +123,8 @@ CallbackReturn PCLLocalization::on_activate(const rclcpp_lifecycle::State &)
     last_localization_y_ = initial_pose_y_;
     last_localization_z_ = initial_pose_z_;
     first_localization_done_ = false;  // Force first localization on next cloud
+    first_localization_attempted_ = false;
+    
     accumulated_cloud_ptr_->clear();
     accumulated_frame_count_ = 0;
 
@@ -256,7 +258,9 @@ void PCLLocalization::initializeParameters()
   get_parameter("enable_map_odom_tf", enable_map_odom_tf_);
   get_parameter("registration_method", registration_method_);
   get_parameter("score_threshold", score_threshold_);
-  best_fitness_score_ = score_threshold_;  // 初始化为阈值，只追踪低于阈值的"好"分数
+  get_parameter("initial_score_threshold", initial_score_threshold_);
+  get_parameter("ongoing_score_threshold", ongoing_score_threshold_);
+  best_fitness_score_ = ongoing_score_threshold_;  // 初始化为严格阈值，只追踪低于"严格阈值"的好分数
   get_parameter("ndt_resolution", ndt_resolution_);
   get_parameter("ndt_step_size", ndt_step_size_);
   get_parameter("ndt_num_threads", ndt_num_threads_);
@@ -715,7 +719,7 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
   // 初始定位时始终输出 fitness score
   if (!first_localization_done_) {
     RCLCPP_INFO(get_logger(), "Initial localization fitness score: %lf (threshold: %lf%s)",
-                fitness_score, score_threshold_,
+                fitness_score, initial_score_threshold_,
                 has_converged ? "" : ", not converged");
   }
   
@@ -729,26 +733,20 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
     RCLCPP_WARN(get_logger(), "Registration reported not converged, but accepting fitness=%.6f as valid", fitness_score);
   }
   
-  // Dynamic score threshold mechanism
-  double effective_threshold = score_threshold_;
-  if (enable_dynamic_threshold_) {
-    if (!first_localization_done_) {
-      // First localization: accept any score that meets the basic threshold
-      effective_threshold = score_threshold_;
-      RCLCPP_INFO(get_logger(), "First localization, using base threshold: %lf", effective_threshold);
-    } else {
-      // Subsequent localizations: use dynamic threshold based on current best score
-      effective_threshold = std::min(current_fitness_score_ * dynamic_threshold_factor_, score_threshold_);
-      RCLCPP_DEBUG(get_logger(), "Dynamic threshold: %lf (current score: %lf, factor: %lf)", 
-                   effective_threshold, current_fitness_score_, dynamic_threshold_factor_);
-    }
-  }
+  // 质量检查：根据阶段使用不同阈值
+  // - 初始定位（!first_localization_done_）: 使用宽松阈值 initial_score_threshold_
+  // - 持续定位（first_localization_done_）: 使用严格阈值 ongoing_score_threshold_
+  double effective_threshold = first_localization_done_ ? ongoing_score_threshold_ : initial_score_threshold_;
   
-  if (fitness_score > effective_threshold && !first_localization_done_) {
-    RCLCPP_INFO(get_logger(), "Initial localization REJECTED: fitness %lf > threshold %lf",
-                fitness_score, effective_threshold);
-    accumulated_cloud_ptr_->clear();
-    accumulated_frame_count_ = 0;
+  if (fitness_score > effective_threshold) {
+    if (!first_localization_done_) {
+      RCLCPP_INFO(get_logger(), "Initial localization REJECTED: fitness %lf > threshold %lf",
+                  fitness_score, effective_threshold);
+    }
+    // 持续定位 rejected 时不输出 INFO（用 DEBUG 避免刷屏）
+    RCLCPP_DEBUG(get_logger(), "Localization skipped: fitness %lf > threshold %lf (phase: %s)",
+                 fitness_score, effective_threshold,
+                 first_localization_done_ ? "ongoing" : "initial");
     return;
   }
   
@@ -944,6 +942,11 @@ bool PCLLocalization::shouldUpdateLocalization(const geometry_msgs::msg::Pose& c
   // Force first localization to execute
   if (!first_localization_attempted_) {
     first_localization_attempted_ = true;
+    return true;
+  }
+  
+  // 初始定位阶段（first_localization_done_ == false）始终执行，不需等位移触发
+  if (!first_localization_done_) {
     return true;
   }
   
