@@ -194,7 +194,7 @@ CallbackReturn PCLLocalization::on_activate(const rclcpp_lifecycle::State &)
 
   // Create performance statistics timer (30 seconds interval)
   performance_timer_ = create_wall_timer(
-    std::chrono::seconds(30),
+    std::chrono::seconds(120),
     std::bind(&PCLLocalization::performanceTimerCallback, this));
 
   RCLCPP_INFO(get_logger(), "Activating end");
@@ -744,13 +744,13 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
     }
   }
   
-  if (fitness_score > effective_threshold) {
-    RCLCPP_INFO(get_logger(), "Localization REJECTED: fitness %lf > threshold %lf%s",
+  if (fitness_score > effective_threshold && !first_localization_done_) {
+    RCLCPP_INFO(get_logger(), "Initial localization REJECTED: fitness %lf > threshold %lf%s",
                 fitness_score, effective_threshold,
                 first_localization_done_ ? " (ongoing)" : "");
-    if (!first_localization_done_) {
-      first_localization_done_ = true;
-    }
+    first_localization_done_ = true;
+    accumulated_cloud_ptr_->clear();
+    accumulated_frame_count_ = 0;
     return;
   }
   
@@ -944,8 +944,8 @@ bool PCLLocalization::shouldUpdateLocalization(const geometry_msgs::msg::Pose& c
   }
   
   // Force first localization to execute
-  if (!first_localization_done_) {
-    first_localization_done_ = true;
+  if (!first_localization_attempted_) {
+    first_localization_attempted_ = true;
     return true;
   }
   

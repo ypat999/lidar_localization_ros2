@@ -155,6 +155,7 @@ public:
   double last_localization_y_{0.0};
   double last_localization_z_{0.0};
   bool first_localization_done_{false};
+  bool first_localization_attempted_{false};  // 独立标志：shouldUpdateLocalization 首次放行
   int initial_localization_accumulate_frames_{10};
   pcl::PointCloud<pcl::PointXYZI>::Ptr accumulated_cloud_ptr_{new pcl::PointCloud<pcl::PointXYZI>};
   int accumulated_frame_count_{0};
