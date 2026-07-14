@@ -202,4 +202,7 @@ public:
   std::vector<double> icp_performance_stats_;
   std::vector<double> ndt_performance_stats_;
   std::mutex performance_stats_mutex_;
+  
+  // 参数运行时修改回调句柄
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_handler_;
 };

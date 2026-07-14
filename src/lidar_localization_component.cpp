@@ -71,6 +71,65 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
   declare_parameter("gicp_k_correspondences", 20);
   declare_parameter("gicp_max_optimizer_iterations", 20);
   declare_parameter("gicp_epsilon", 0.01);
+
+  // 参数运行时修改回调
+  param_handler_ = add_on_set_parameters_callback(
+    [this](const std::vector<rclcpp::Parameter> & params) {
+      for (const auto & p : params) {
+        const auto & name = p.get_name();
+        if (name == "global_frame_id") global_frame_id_ = p.as_string();
+        else if (name == "odom_frame_id") odom_frame_id_ = p.as_string();
+        else if (name == "base_frame_id") base_frame_id_ = p.as_string();
+        else if (name == "enable_map_odom_tf") enable_map_odom_tf_ = p.as_bool();
+        else if (name == "registration_method") registration_method_ = p.as_string();
+        else if (name == "ndt_resolution") ndt_resolution_ = p.as_double();
+        else if (name == "ndt_step_size") ndt_step_size_ = p.as_double();
+        else if (name == "ndt_num_threads") ndt_num_threads_ = p.as_int();
+        else if (name == "ndt_max_iterations") ndt_max_iterations_ = p.as_int();
+        else if (name == "transform_epsilon") transform_epsilon_ = p.as_double();
+        else if (name == "voxel_leaf_size") voxel_leaf_size_ = p.as_double();
+        else if (name == "scan_max_range") scan_max_range_ = p.as_double();
+        else if (name == "scan_min_range") scan_min_range_ = p.as_double();
+        else if (name == "scan_period") scan_period_ = p.as_double();
+        else if (name == "use_pcd_map") use_pcd_map_ = p.as_bool();
+        else if (name == "map_path") map_path_ = p.as_string();
+        else if (name == "set_initial_pose") set_initial_pose_ = p.as_bool();
+        else if (name == "initial_pose_x") initial_pose_x_ = p.as_double();
+        else if (name == "initial_pose_y") initial_pose_y_ = p.as_double();
+        else if (name == "initial_pose_z") initial_pose_z_ = p.as_double();
+        else if (name == "initial_pose_qx") initial_pose_qx_ = p.as_double();
+        else if (name == "initial_pose_qy") initial_pose_qy_ = p.as_double();
+        else if (name == "initial_pose_qz") initial_pose_qz_ = p.as_double();
+        else if (name == "initial_pose_qw") initial_pose_qw_ = p.as_double();
+        else if (name == "use_odom") use_odom_ = p.as_bool();
+        else if (name == "use_imu") use_imu_ = p.as_bool();
+        else if (name == "enable_debug") enable_debug_ = p.as_bool();
+        else if (name == "enable_timer_publishing") enable_timer_publishing = p.as_bool();
+        else if (name == "pose_publish_frequency") pose_publish_frequency_ = p.as_double();
+        else if (name == "displacement_threshold") displacement_threshold_ = p.as_double();
+        else if (name == "search_radius") search_radius_ = p.as_double();
+        else if (name == "search_grid_size") search_grid_size_ = p.as_int();
+        else if (name == "enable_displacement_check") enable_displacement_check_ = p.as_bool();
+        else if (name == "enable_search_optimization") enable_search_optimization_ = p.as_bool();
+        else if (name == "map_downsample_leaf_size") map_downsample_leaf_size_ = p.as_double();
+        else if (name == "enable_angle_search") enable_angle_search_ = p.as_bool();
+        else if (name == "angle_search_range") angle_search_range_ = p.as_double();
+        else if (name == "angle_search_steps") angle_search_steps_ = p.as_int();
+        else if (name == "enable_z_axis_search") enable_z_axis_search_ = p.as_bool();
+        else if (name == "enable_dynamic_threshold") enable_dynamic_threshold_ = p.as_bool();
+        else if (name == "dynamic_threshold_factor") dynamic_threshold_factor_ = p.as_double();
+        else if (name == "initial_localization_accumulate_frames") initial_localization_accumulate_frames_ = p.as_int();
+        else if (name == "gicp_corr_dist_threshold") gicp_corr_dist_threshold_ = p.as_double();
+        else if (name == "gicp_rotation_epsilon") gicp_rotation_epsilon_ = p.as_double();
+        else if (name == "gicp_k_correspondences") gicp_k_correspondences_ = p.as_int();
+        else if (name == "gicp_max_optimizer_iterations") gicp_max_optimizer_iterations_ = p.as_int();
+        else if (name == "gicp_epsilon") gicp_epsilon_ = p.as_double();
+        else if (name == "map_topic") map_topic_ = p.as_string();
+      }
+      rcl_interfaces::msg::SetParametersResult result;
+      result.successful = true;
+      return result;
+    });
 }
 
 using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
