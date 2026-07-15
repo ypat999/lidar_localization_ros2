@@ -1,12 +1,12 @@
 /**:
     ros__parameters:
       registration_method: "GICP_OMP"       #"NDT_OMP"   #"GICP_OMP" 
-      initial_score_threshold: 0.1        # 初始定位宽松阈值（可接受较差匹配）
-      ongoing_score_threshold: 0.02       # 持续定位严格阈值（只接受精确匹配）
+      initial_score_threshold: 0.05        # 初始定位宽松阈值（可接受较差匹配）
+      ongoing_score_threshold: 0.01       # 持续定位严格阈值（只接受精确匹配）
       ndt_resolution: 0.5               # Higher resolution for better accuracy
       ndt_step_size: 0.1               # Larger step size for better rotation convergence
       ndt_num_threads: 2                 # More threads for faster processing
-      ndt_max_iterations: 32            # More iterations for better convergence
+      ndt_max_iterations: 64            # More iterations for better convergence
       transform_epsilon: 0.001         # Convergence epsilon for transformation（变换收敛精度）
 
       # GICP-specific parameters (only used when registration_method="GICP_OMP")
@@ -72,4 +72,4 @@
       dynamic_threshold_factor: 3.0      # Factor for dynamic threshold (new score must be <= current * factor)（动态阈值因子）
       
       # Initial localization accumulation（初始定位多帧叠加参数）
-      initial_localization_accumulate_frames: 5  # Number of frames to accumulate for initial localization（初始定位叠加帧数，mid360非重复扫描建议10帧以上）
+      initial_localization_accumulate_frames: 10  # Number of frames to accumulate for initial localization（初始定位叠加帧数，mid360非重复扫描建议10帧以上）
