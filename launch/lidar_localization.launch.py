@@ -43,7 +43,6 @@ def generate_launch_description():
 
     lidar_localization = launch_ros.actions.LifecycleNode(
         name='lidar_localization',
-        namespace='',
         package='lidar_localization_ros2',
         executable='lidar_localization_node',
         parameters=[localization_param_dir],

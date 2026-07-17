@@ -16,6 +16,8 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
   declare_parameter("map_topic", "map3d");
   declare_parameter("enable_map_odom_tf", false);
   declare_parameter("registration_method", "NDT");
+  declare_parameter("initial_score_threshold", 0.5);  // 初始定位阈值（宽松）
+  declare_parameter("ongoing_score_threshold", 0.1);  // 持续定位阈值（严格）
   declare_parameter("score_threshold", 0.0001);
   declare_parameter("ndt_resolution", 1.0);
   declare_parameter("ndt_step_size", 0.1);
