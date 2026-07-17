@@ -811,7 +811,7 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
 
       // 用初始猜测位姿（即初始位姿）代替注册结果，继续后续发布/TF 流程
       final_transformation = init_guess;
-      fitness_score = 0.0;
+      // 不修改 fitness_score，保持实际值（大于 best_fitness_score_，不会触发最小值更新）
       // 不 return，继续往下走到发布和 TF 广播逻辑
     } else {
       RCLCPP_DEBUG(get_logger(), "Localization skipped: fitness %lf > threshold %lf (phase: %s)",
