@@ -802,12 +802,23 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
     if (!first_localization_done_) {
       RCLCPP_INFO(get_logger(), "Initial localization REJECTED: fitness %lf > threshold %lf",
                   fitness_score, effective_threshold);
+      RCLCPP_INFO(get_logger(), "Falling back to initial pose, first_localization_done_ set to true");
+
+      // 初始定位失败时，直接使用初始位姿，标记完成，不再重复尝试匹配
+      first_localization_done_ = true;
+      accumulated_cloud_ptr_->clear();
+      accumulated_frame_count_ = 0;
+
+      // 用初始猜测位姿（即初始位姿）代替注册结果，继续后续发布/TF 流程
+      final_transformation = init_guess;
+      fitness_score = 0.0;
+      // 不 return，继续往下走到发布和 TF 广播逻辑
+    } else {
+      RCLCPP_DEBUG(get_logger(), "Localization skipped: fitness %lf > threshold %lf (phase: %s)",
+                   fitness_score, effective_threshold,
+                   first_localization_done_ ? "ongoing" : "initial");
+      return;
     }
-    // 持续定位 rejected 时不输出 INFO（用 DEBUG 避免刷屏）
-    RCLCPP_DEBUG(get_logger(), "Localization skipped: fitness %lf > threshold %lf (phase: %s)",
-                 fitness_score, effective_threshold,
-                 first_localization_done_ ? "ongoing" : "initial");
-    return;
   }
   
   // Update current fitness score
