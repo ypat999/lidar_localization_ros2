@@ -3,6 +3,7 @@ import os
 import launch
 import launch.actions
 import launch.events
+import launch.event_handlers
 
 import launch_ros
 import launch_ros.actions
@@ -51,7 +52,10 @@ def generate_launch_description():
                     ('/imu','/livox/imu'),
                     ('/odom','/lio/robo/odom')],
         prefix=['taskset -c 5,6'],   # 绑定 CPU 5,6
-        output='screen')
+        output='screen',
+        respawn=True,                # 崩溃后自动重启
+        respawn_delay=2.0,           # 重启间隔 2 秒
+    )
 
     to_inactive = launch.actions.EmitEvent(
         event=launch_ros.events.lifecycle.ChangeState(
@@ -89,8 +93,38 @@ def generate_launch_description():
         )
     )
 
+    # 进程退出/崩溃后的自动恢复处理器（配合 respawn 使用）
+    # 等待新进程启动后重新触发生命周期 configure → activate
+    lidar_localization_respawn_handler = launch.actions.RegisterEventHandler(
+        launch.event_handlers.OnProcessExit(
+            target_action=lidar_localization,
+            on_exit=[
+                launch.actions.LogInfo(
+                    msg="lidar_localization 进程退出，等待 respawn 后恢复生命周期..."
+                ),
+                launch.actions.TimerAction(
+                    period=1.5,  # 等待新进程启动并完成 DDS 注册
+                    actions=[
+                        launch.actions.LogInfo(
+                            msg="重新触发生命周期: configure → activate"
+                        ),
+                        launch.actions.EmitEvent(
+                            event=launch_ros.events.lifecycle.ChangeState(
+                                lifecycle_node_matcher=launch.events.matches_action(
+                                    lidar_localization
+                                ),
+                                transition_id=lifecycle_msgs.msg.Transition.TRANSITION_CONFIGURE,
+                            )
+                        ),
+                    ],
+                ),
+            ],
+        )
+    )
+
     ld.add_action(from_unconfigured_to_inactive)
     ld.add_action(from_inactive_to_active)
+    ld.add_action(lidar_localization_respawn_handler)
 
     ld.add_action(lidar_localization)
     # ld.add_action(lidar_tf)

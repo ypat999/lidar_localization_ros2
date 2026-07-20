@@ -1,6 +1,7 @@
 #include <lidar_localization/lidar_localization_component.hpp>
 #include <chrono>
 #include <numeric>
+#include <thread>
 
 PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
 : rclcpp_lifecycle::LifecycleNode("lidar_localization", options),
@@ -305,7 +306,14 @@ CallbackReturn PCLLocalization::on_shutdown(const rclcpp_lifecycle::State & stat
 
 CallbackReturn PCLLocalization::on_error(const rclcpp_lifecycle::State & state)
 {
-  RCLCPP_FATAL(get_logger(), "Error Processing from %s", state.label().c_str());
+  RCLCPP_FATAL(get_logger(), "Error Processing from %s, shutting down for respawn...", state.label().c_str());
+
+  // 退出进程以触发 launch 的 respawn 机制
+  // 如果不退出，节点会卡在 error 状态不恢复
+  std::thread([]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    rclcpp::shutdown();
+  }).detach();
 
   return CallbackReturn::SUCCESS;
 }
