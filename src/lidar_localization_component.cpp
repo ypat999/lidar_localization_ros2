@@ -933,6 +933,17 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
   
   map_odom_pose_pub_->publish(map_odom_pose_msg);
 
+  RCLCPP_INFO(get_logger(),
+    "map->odom TF | t=(%.3f, %.3f, %.3f) q=(%.4f, %.4f, %.4f, %.4f) | fitness=%.6f",
+    map_to_odom_tf.getOrigin().x(),
+    map_to_odom_tf.getOrigin().y(),
+    map_to_odom_tf.getOrigin().z(),
+    map_to_odom_tf.getRotation().x(),
+    map_to_odom_tf.getRotation().y(),
+    map_to_odom_tf.getRotation().z(),
+    map_to_odom_tf.getRotation().w(),
+    fitness_score);
+
   geometry_msgs::msg::PoseStamped::SharedPtr pose_stamped_ptr(new geometry_msgs::msg::PoseStamped);
   pose_stamped_ptr->header.stamp = msg->header.stamp;
   pose_stamped_ptr->header.frame_id = global_frame_id_;
