@@ -2,25 +2,25 @@
     ros__parameters:
       registration_method: "GICP_OMP"   #"GICP_OMP"     "NDT_OMP"
       initial_score_threshold: 0.5        # 初始定位宽松阈值（可接受较差匹配）
-      ongoing_score_threshold: 0.02        # 持续定位严格阈值（只接受精确匹配）
+      ongoing_score_threshold: 0.1        # 持续定位严格阈值（只接受精确匹配）
       # Per-axis fitness score thresholds（各轴独立阈值，默认与 ongoing_score_threshold 相同）
-      ongoing_score_threshold_x: 0.02    # X轴匹配误差平方和阈值
-      ongoing_score_threshold_y: 0.02    # Y轴匹配误差平方和阈值
-      ongoing_score_threshold_z: 0.02    # Z轴匹配误差平方和阈值
+      ongoing_score_threshold_x: 0.05    # X轴匹配误差平方和阈值
+      ongoing_score_threshold_y: 0.05    # Y轴匹配误差平方和阈值
+      ongoing_score_threshold_z: 0.05    # Z轴匹配误差平方和阈值
       ndt_resolution: 0.5             # Voxel resolution for NDT (balance speed vs accuracy)（NDT体素分辨率）
       ndt_step_size: 0.1               # Step size for NDT optimization（NDT优化步长）
       ndt_num_threads: 2                 # More threads for faster processing
-      ndt_max_iterations: 32            # More iterations for better convergence
-      transform_epsilon: 0.005         # Convergence epsilon for transformation（变换收敛精度）
+      ndt_max_iterations: 16            # More iterations for better convergence
+      transform_epsilon: 0.001         # Convergence epsilon for transformation（变换收敛精度）
 
       # GICP-specific parameters (only used when registration_method="GICP_OMP")
       gicp_corr_dist_threshold: 3.0    # Max correspondence distance (m)（最大对应点距离）
       gicp_rotation_epsilon: 0.01      # Rotation convergence epsilon (rad)（旋转收敛精度）
       gicp_k_correspondences: 30       # Neighbors for covariance (lower for sparse maps)（协方差计算邻域数，稀疏地图用小值）
-      gicp_max_optimizer_iterations: 32 # Inner BFGS max iterations（内部优化器最大迭代次数）
+      gicp_max_optimizer_iterations: 16 # Inner BFGS max iterations（内部优化器最大迭代次数）
       gicp_epsilon: 0.001               # Tikhonov regularization for covariance inversion (higher = more stable on sparse maps)（协方差正则化，稀疏地图用较大值0.01~0.05）
 
-      voxel_leaf_size: 0.1               # Smaller voxel size for better detail
+      voxel_leaf_size: 0.2               # Smaller voxel size for better detail
       scan_max_range: 100.0               # Extended range for better matching
       scan_min_range: 0.1
       scan_period: 0.1
@@ -46,7 +46,7 @@
       pose_publish_frequency: 10.0
       
       # New parameters for improved localization
-      displacement_threshold: 1.0        # Only update when displacement > 0.3m（位移触发阈值）
+      displacement_threshold: 3.0        # Only update when displacement > 0.3m（位移触发阈值）
       search_radius: 2.0                 # Search radius around initial point（搜索半径）
       search_grid_size: 5                # Grid points per dimension for search（搜索网格密度）
       enable_displacement_check: true    # Enable displacement-based triggering（启用位移检查）
