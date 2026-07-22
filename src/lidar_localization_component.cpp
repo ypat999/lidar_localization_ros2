@@ -843,6 +843,13 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
       RCLCPP_DEBUG(get_logger(), "Localization skipped: fitness %lf > threshold %lf (phase: %s)",
                    fitness_score, effective_threshold,
                    first_localization_done_ ? "ongoing" : "initial");
+      // 更新 odom 参考点，避免在失败位置立即重试
+      try {
+        geometry_msgs::msg::TransformStamped odom_to_base = tfbuffer_.lookupTransform(
+          odom_frame_id_, base_frame_id_, tf2::TimePointZero);
+        odom_at_localization_.position = odom_to_base.transform.translation;
+        odom_at_localization_.orientation = odom_to_base.transform.rotation;
+      } catch (const tf2::TransformException &) {}
       return;
     }
   }
@@ -862,6 +869,13 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
         fitness_x, ongoing_score_threshold_x_,
         fitness_y, ongoing_score_threshold_y_,
         fitness_z, ongoing_score_threshold_z_);
+      // 更新 odom 参考点，避免在失败位置立即重试
+      try {
+        geometry_msgs::msg::TransformStamped odom_to_base = tfbuffer_.lookupTransform(
+          odom_frame_id_, base_frame_id_, tf2::TimePointZero);
+        odom_at_localization_.position = odom_to_base.transform.translation;
+        odom_at_localization_.orientation = odom_to_base.transform.rotation;
+      } catch (const tf2::TransformException &) {}
       return;
     }
     
