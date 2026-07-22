@@ -8,7 +8,7 @@
       ongoing_score_threshold_x: 0.02    # X轴匹配误差平方和阈值
       ongoing_score_threshold_y: 0.02    # Y轴匹配误差平方和阈值
       ongoing_score_threshold_z: 0.02    # Z轴匹配误差平方和阈值
-      ndt_resolution: 0.5               # Higher resolution for better accuracy
+      ndt_resolution: 0.25               # Higher resolution for better accuracy
       ndt_step_size: 0.1               # Larger step size for better rotation convergence
       ndt_num_threads: 2                 # More threads for faster processing
       ndt_max_iterations: 64            # More iterations for better convergence
@@ -16,7 +16,7 @@
 
       # GICP-specific parameters (only used when registration_method="GICP_OMP")
       gicp_corr_dist_threshold: 3.0    # Max correspondence distance (m)（最大对应点距离）
-      gicp_rotation_epsilon: 0.01      # Rotation convergence epsilon (rad)（旋转收敛精度）
+      gicp_rotation_epsilon: 0.001      # Rotation convergence epsilon (rad)（旋转收敛精度）
       gicp_k_correspondences: 30       # Neighbors for covariance (lower for sparse maps)（协方差计算邻域数，稀疏地图用小值）
       gicp_max_optimizer_iterations: 64 # Inner BFGS max iterations（内部优化器最大迭代次数）
       gicp_epsilon: 0.001               # Tikhonov regularization for covariance inversion (higher = more stable on sparse maps)（协方差正则化，稀疏地图用较大值0.01~0.05）

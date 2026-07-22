@@ -847,7 +847,9 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
       try {
         geometry_msgs::msg::TransformStamped odom_to_base = tfbuffer_.lookupTransform(
           odom_frame_id_, base_frame_id_, tf2::TimePointZero);
-        odom_at_localization_.position = odom_to_base.transform.translation;
+        odom_at_localization_.position.x = odom_to_base.transform.translation.x;
+        odom_at_localization_.position.y = odom_to_base.transform.translation.y;
+        odom_at_localization_.position.z = odom_to_base.transform.translation.z;
         odom_at_localization_.orientation = odom_to_base.transform.rotation;
       } catch (const tf2::TransformException &) {}
       return;
@@ -873,7 +875,9 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
       try {
         geometry_msgs::msg::TransformStamped odom_to_base = tfbuffer_.lookupTransform(
           odom_frame_id_, base_frame_id_, tf2::TimePointZero);
-        odom_at_localization_.position = odom_to_base.transform.translation;
+        odom_at_localization_.position.x = odom_to_base.transform.translation.x;
+        odom_at_localization_.position.y = odom_to_base.transform.translation.y;
+        odom_at_localization_.position.z = odom_to_base.transform.translation.z;
         odom_at_localization_.orientation = odom_to_base.transform.rotation;
       } catch (const tf2::TransformException &) {}
       return;
