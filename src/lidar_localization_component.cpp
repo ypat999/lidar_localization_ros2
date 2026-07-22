@@ -1183,6 +1183,13 @@ void PCLLocalization::computePerAxisFitnessScore(
     }
   }
   
+  // 归一化：除以对应点数，使其与 PCL getFitnessScore() 量纲一致（平均距离平方和）
+  if (valid_count > 0) {
+    fitness_x /= valid_count;
+    fitness_y /= valid_count;
+    fitness_z /= valid_count;
+  }
+  
   RCLCPP_DEBUG(get_logger(), "Per-axis fitness: x=%.6f y=%.6f z=%.6f (from %d correspondences, avg err: x=%.4f y=%.4f z=%.4f m)",
                fitness_x, fitness_y, fitness_z, valid_count,
                valid_count > 0 ? std::sqrt(fitness_x / valid_count) : 0.0,
