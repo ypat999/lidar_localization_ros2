@@ -19,6 +19,10 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
   declare_parameter("registration_method", "NDT");
   declare_parameter("initial_score_threshold", 0.5);  // 初始定位阈值（宽松）
   declare_parameter("ongoing_score_threshold", 0.1);  // 持续定位阈值（严格）
+  // Per-axis fitness score thresholds（默认与 ongoing_score_threshold 相同，保持向后兼容）
+  declare_parameter("ongoing_score_threshold_x", 0.1);
+  declare_parameter("ongoing_score_threshold_y", 0.1);
+  declare_parameter("ongoing_score_threshold_z", 0.1);
   declare_parameter("score_threshold", 0.0001);
   declare_parameter("ndt_resolution", 1.0);
   declare_parameter("ndt_step_size", 0.1);
@@ -121,6 +125,9 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
         else if (name == "enable_z_axis_search") enable_z_axis_search_ = p.as_bool();
         else if (name == "enable_dynamic_threshold") enable_dynamic_threshold_ = p.as_bool();
         else if (name == "dynamic_threshold_factor") dynamic_threshold_factor_ = p.as_double();
+        else if (name == "ongoing_score_threshold_x") ongoing_score_threshold_x_ = p.as_double();
+        else if (name == "ongoing_score_threshold_y") ongoing_score_threshold_y_ = p.as_double();
+        else if (name == "ongoing_score_threshold_z") ongoing_score_threshold_z_ = p.as_double();
         else if (name == "initial_localization_accumulate_frames") initial_localization_accumulate_frames_ = p.as_int();
         else if (name == "gicp_corr_dist_threshold") gicp_corr_dist_threshold_ = p.as_double();
         else if (name == "gicp_rotation_epsilon") gicp_rotation_epsilon_ = p.as_double();
@@ -253,6 +260,8 @@ CallbackReturn PCLLocalization::on_activate(const rclcpp_lifecycle::State &)
       registration_->setInputTarget(map_cloud_ptr);
     }
 
+    buildTargetKdTree();
+
     map_recieved_ = true;
   }
 
@@ -328,6 +337,10 @@ void PCLLocalization::initializeParameters()
   get_parameter("registration_method", registration_method_);
   get_parameter("initial_score_threshold", initial_score_threshold_);
   get_parameter("ongoing_score_threshold", ongoing_score_threshold_);
+  // Per-axis thresholds: default to ongoing_score_threshold_ if not explicitly set (backward compatible)
+  get_parameter("ongoing_score_threshold_x", ongoing_score_threshold_x_);
+  get_parameter("ongoing_score_threshold_y", ongoing_score_threshold_y_);
+  get_parameter("ongoing_score_threshold_z", ongoing_score_threshold_z_);
   best_fitness_score_ = ongoing_score_threshold_;  // 初始化为严格阈值，只追踪低于"严格阈值"的好分数
   get_parameter("ndt_resolution", ndt_resolution_);
   get_parameter("ndt_step_size", ndt_step_size_);
@@ -410,6 +423,9 @@ void PCLLocalization::initializeParameters()
   RCLCPP_INFO(get_logger(),"angle_search_steps: %d", angle_search_steps_);
   RCLCPP_INFO(get_logger(),"enable_dynamic_threshold: %d", enable_dynamic_threshold_);
   RCLCPP_INFO(get_logger(),"dynamic_threshold_factor: %lf", dynamic_threshold_factor_);
+  RCLCPP_INFO(get_logger(),"ongoing_score_threshold_x: %lf", ongoing_score_threshold_x_);
+  RCLCPP_INFO(get_logger(),"ongoing_score_threshold_y: %lf", ongoing_score_threshold_y_);
+  RCLCPP_INFO(get_logger(),"ongoing_score_threshold_z: %lf", ongoing_score_threshold_z_);
   RCLCPP_INFO(get_logger(),"initial_localization_accumulate_frames: %d", initial_localization_accumulate_frames_);
 
   // GICP-specific parameters
@@ -529,6 +545,8 @@ void PCLLocalization::mapReceived(const sensor_msgs::msg::PointCloud2::SharedPtr
   } else {
     registration_->setInputTarget(map_cloud_ptr);
   }
+
+  buildTargetKdTree();
 
   map_recieved_ = true;
   RCLCPP_INFO(get_logger(), "mapReceived end");
@@ -829,6 +847,31 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
     }
   }
   
+  // Per-axis fitness score check（各轴独立阈值检查）
+  // 只在持续定位阶段使用，初始定位阶段跳过（仅用总阈值判断）
+  if (first_localization_done_ && target_kdtree_ && !target_kdtree_->getInputCloud()->empty()) {
+    double fitness_x, fitness_y, fitness_z;
+    computePerAxisFitnessScore(cloud_for_registration, final_transformation, fitness_x, fitness_y, fitness_z);
+    
+    if (fitness_x > ongoing_score_threshold_x_ ||
+        fitness_y > ongoing_score_threshold_y_ ||
+        fitness_z > ongoing_score_threshold_z_) {
+      RCLCPP_INFO(get_logger(),
+        "Localization REJECTED per-axis: x=%.6f(thresh=%.6f) y=%.6f(thresh=%.6f) z=%.6f(thresh=%.6f)",
+        fitness_x, ongoing_score_threshold_x_,
+        fitness_y, ongoing_score_threshold_y_,
+        fitness_z, ongoing_score_threshold_z_);
+      return;
+    }
+    
+    search_result.fitness_score_x = fitness_x;
+    search_result.fitness_score_y = fitness_y;
+    search_result.fitness_score_z = fitness_z;
+    
+    RCLCPP_DEBUG(get_logger(), "Per-axis fitness passed: x=%.6f y=%.6f z=%.6f",
+                 fitness_x, fitness_y, fitness_z);
+  }
+  
   // Update current fitness score
   current_fitness_score_ = fitness_score;
   if (fitness_score < best_fitness_score_) {
@@ -1085,4 +1128,61 @@ void PCLLocalization::performanceTimerCallback()
   if (icp_performance_stats_.empty() && ndt_performance_stats_.empty()) {
     RCLCPP_DEBUG(get_logger(), "No ICP/NDT performance data in the last 30 seconds");
   }
+}
+
+void PCLLocalization::buildTargetKdTree()
+{
+  auto target_cloud = registration_->getInputTarget();
+  if (!target_cloud || target_cloud->empty()) {
+    RCLCPP_WARN(get_logger(), "buildTargetKdTree: target cloud is empty, skipping");
+    return;
+  }
+  
+  target_kdtree_.reset(new pcl::KdTreeFLANN<pcl::PointXYZI>());
+  target_kdtree_->setInputCloud(target_cloud);
+  RCLCPP_INFO(get_logger(), "Target kd-tree built with %lu points", target_cloud->size());
+}
+
+void PCLLocalization::computePerAxisFitnessScore(
+  const pcl::PointCloud<pcl::PointXYZI>::Ptr& source_cloud,
+  const Eigen::Matrix4f& transformation,
+  double& fitness_x, double& fitness_y, double& fitness_z)
+{
+  fitness_x = 0.0;
+  fitness_y = 0.0;
+  fitness_z = 0.0;
+  
+  if (!target_kdtree_ || target_kdtree_->getInputCloud()->empty()) {
+    return;
+  }
+  
+  // Transform source cloud by the final registration transformation
+  pcl::PointCloud<pcl::PointXYZI>::Ptr aligned_cloud(new pcl::PointCloud<pcl::PointXYZI>);
+  pcl::transformPointCloud(*source_cloud, *aligned_cloud, transformation);
+  
+  std::vector<int> indices(1);
+  std::vector<float> distances(1);
+  int valid_count = 0;
+  
+  for (const auto& pt : aligned_cloud->points) {
+    if (!std::isfinite(pt.x) || !std::isfinite(pt.y) || !std::isfinite(pt.z)) continue;
+    
+    pcl::PointXYZI search_pt = pt;
+    if (target_kdtree_->nearestKSearch(search_pt, 1, indices, distances) > 0) {
+      const auto& target_pt = target_kdtree_->getInputCloud()->points[indices[0]];
+      double dx = pt.x - target_pt.x;
+      double dy = pt.y - target_pt.y;
+      double dz = pt.z - target_pt.z;
+      fitness_x += dx * dx;
+      fitness_y += dy * dy;
+      fitness_z += dz * dz;
+      valid_count++;
+    }
+  }
+  
+  RCLCPP_DEBUG(get_logger(), "Per-axis fitness: x=%.6f y=%.6f z=%.6f (from %d correspondences, avg err: x=%.4f y=%.4f z=%.4f m)",
+               fitness_x, fitness_y, fitness_z, valid_count,
+               valid_count > 0 ? std::sqrt(fitness_x / valid_count) : 0.0,
+               valid_count > 0 ? std::sqrt(fitness_y / valid_count) : 0.0,
+               valid_count > 0 ? std::sqrt(fitness_z / valid_count) : 0.0);
 }

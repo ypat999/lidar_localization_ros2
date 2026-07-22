@@ -11,6 +11,7 @@
 #include <pcl/registration/registration.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/ply_io.h>
+#include <pcl/kdtree/kdtree_flann.h>
 
 #include <tf2/transform_datatypes.h>
 #include <tf2/utils.h>
@@ -109,6 +110,10 @@ public:
   double scan_period_;
   double initial_score_threshold_{2.0};   // 初始定位阈值（宽松）
   double ongoing_score_threshold_{0.1};   // 持续定位阈值（严格）
+  // Per-axis fitness score thresholds（各轴独立阈值，默认与总阈值相同以保持向后兼容）
+  double ongoing_score_threshold_x_{0.1};
+  double ongoing_score_threshold_y_{0.1};
+  double ongoing_score_threshold_z_{0.1};
   double ndt_resolution_;
   double ndt_step_size_;
   double transform_epsilon_;
@@ -178,9 +183,17 @@ public:
   bool enable_dynamic_threshold_{true};  // Enable dynamic threshold mechanism
   double dynamic_threshold_factor_{2.0};  // Factor for dynamic threshold (new score must be <= current * factor)
   
+  // KdTree for target map (用于 per-axis fitness score 计算)
+  pcl::KdTreeFLANN<pcl::PointXYZI>::Ptr target_kdtree_;
+  
   // Helper methods
   double calculateDisplacement(const geometry_msgs::msg::Pose& current_pose);
   bool shouldUpdateLocalization(const geometry_msgs::msg::Pose& current_pose);
+  void computePerAxisFitnessScore(
+    const pcl::PointCloud<pcl::PointXYZI>::Ptr& source_cloud,
+    const Eigen::Matrix4f& transformation,
+    double& fitness_x, double& fitness_y, double& fitness_z);
+  void buildTargetKdTree();
   
   // Performance statistics methods
   void performanceTimerCallback();
@@ -190,6 +203,9 @@ public:
     Eigen::Matrix4f transformation;
     bool has_converged;
     double fitness_score;
+    double fitness_score_x;  // per-axis: sum of squared dx
+    double fitness_score_y;  // per-axis: sum of squared dy
+    double fitness_score_z;  // per-axis: sum of squared dz
   };
   
   SearchResult searchOptimalTransformation(

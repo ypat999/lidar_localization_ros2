@@ -76,6 +76,9 @@ PCLLocalization::SearchResult PCLLocalization::searchOptimalTransformation(
   result.transformation = initial_guess;
   result.has_converged = false;
   result.fitness_score = std::numeric_limits<double>::max();
+  result.fitness_score_x = std::numeric_limits<double>::max();
+  result.fitness_score_y = std::numeric_limits<double>::max();
+  result.fitness_score_z = std::numeric_limits<double>::max();
   
   if (!enable_search_optimization_) {
     // Use standard single-point registration
