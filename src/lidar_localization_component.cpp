@@ -848,8 +848,8 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
   }
   
   // Per-axis fitness score check（各轴独立阈值检查）
-  // 只在持续定位阶段使用，初始定位阶段跳过（仅用总阈值判断）
-  if (first_localization_done_ && target_kdtree_ && !target_kdtree_->getInputCloud()->empty()) {
+  // 只在持续定位阶段使用，且仅在总体 fitness 通过后才检查（跳过初始定位失败的 fallback 场景）
+  if (fitness_score <= effective_threshold && first_localization_done_ && target_kdtree_ && !target_kdtree_->getInputCloud()->empty()) {
     double fitness_x, fitness_y, fitness_z;
     computePerAxisFitnessScore(cloud_for_registration, final_transformation, fitness_x, fitness_y, fitness_z);
     
