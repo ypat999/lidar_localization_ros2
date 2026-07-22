@@ -868,8 +868,10 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
     search_result.fitness_score_y = fitness_y;
     search_result.fitness_score_z = fitness_z;
     
-    RCLCPP_DEBUG(get_logger(), "Per-axis fitness passed: x=%.6f y=%.6f z=%.6f",
-                 fitness_x, fitness_y, fitness_z);
+    RCLCPP_INFO(get_logger(), "Localization ACCEPTED per-axis: x=%.6f(thresh=%.6f) y=%.6f(thresh=%.6f) z=%.6f(thresh=%.6f)",
+                 fitness_x, ongoing_score_threshold_x_,
+                 fitness_y, ongoing_score_threshold_y_,
+                 fitness_z, ongoing_score_threshold_z_);
   }
   
   // Update current fitness score
