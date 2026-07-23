@@ -802,6 +802,11 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
   bool has_converged = search_result.has_converged;
   double fitness_score = search_result.fitness_score;
   
+  // 质量检查：根据阶段使用不同阈值
+  // - 初始定位（!first_localization_done_）: 使用宽松阈值 initial_score_threshold_
+  // - 持续定位（first_localization_done_）: 使用严格阈值 ongoing_score_threshold_
+  double effective_threshold = first_localization_done_ ? ongoing_score_threshold_ : initial_score_threshold_;
+  
   // 初始定位时始终输出 fitness score
   if (!first_localization_done_) {
     RCLCPP_INFO(get_logger(), "Initial localization fitness score: %lf (threshold: %lf%s)",
@@ -811,18 +816,24 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
   
   if (!has_converged) {
     // GICP may report hasConverged=false even with a valid solution (BFGS inner exception).
-    // Only reject if fitness is unreasonably high or DBL_MAX.
-    if (fitness_score >= std::numeric_limits<double>::max() / 2.0) {
-      RCLCPP_WARN(get_logger(), "The registration didn't converge and no valid fitness score.");
+    // Use configured threshold to determine if the fitness score is acceptable.
+    if (fitness_score >= effective_threshold) {
+      RCLCPP_WARN(get_logger(), 
+        "Registration not converged and fitness %.6f exceeds threshold %.6f, rejecting",
+        fitness_score, effective_threshold);
+      // 更新 odom 参考点，避免立即重试
+      try {
+        geometry_msgs::msg::TransformStamped odom_to_base = tfbuffer_.lookupTransform(
+          odom_frame_id_, base_frame_id_, tf2::TimePointZero);
+        odom_at_localization_.position = odom_to_base.transform.translation;
+        odom_at_localization_.orientation = odom_to_base.transform.rotation;
+      } catch (const tf2::TransformException &) {}
       return;
     }
-    RCLCPP_WARN(get_logger(), "Registration reported not converged, but accepting fitness=%.6f as valid", fitness_score);
+    RCLCPP_WARN(get_logger(), 
+      "Registration not converged but fitness %.6f within threshold %.6f, accepting",
+      fitness_score, effective_threshold);
   }
-  
-  // 质量检查：根据阶段使用不同阈值
-  // - 初始定位（!first_localization_done_）: 使用宽松阈值 initial_score_threshold_
-  // - 持续定位（first_localization_done_）: 使用严格阈值 ongoing_score_threshold_
-  double effective_threshold = first_localization_done_ ? ongoing_score_threshold_ : initial_score_threshold_;
   
   if (fitness_score > effective_threshold) {
     if (!first_localization_done_) {
