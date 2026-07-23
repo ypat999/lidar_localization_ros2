@@ -53,6 +53,7 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
   declare_parameter("displacement_threshold", 0.3);  // meters
   declare_parameter("search_radius", 3.0);           // meters
   declare_parameter("search_grid_size", 5);          // grid points per dimension
+  declare_parameter("min_localization_interval", 2.0);  // 最小重试间隔（秒）
   declare_parameter("enable_displacement_check", true);
   declare_parameter("enable_search_optimization", true);
   
@@ -114,6 +115,7 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
         else if (name == "enable_timer_publishing") enable_timer_publishing = p.as_bool();
         else if (name == "pose_publish_frequency") pose_publish_frequency_ = p.as_double();
         else if (name == "displacement_threshold") displacement_threshold_ = p.as_double();
+        else if (name == "min_localization_interval") min_localization_interval_ = p.as_double();
         else if (name == "search_radius") search_radius_ = p.as_double();
         else if (name == "search_grid_size") search_grid_size_ = p.as_int();
         else if (name == "enable_displacement_check") enable_displacement_check_ = p.as_bool();
@@ -369,6 +371,7 @@ void PCLLocalization::initializeParameters()
 
   // New parameters for improved localization
   get_parameter("displacement_threshold", displacement_threshold_);
+  get_parameter("min_localization_interval", min_localization_interval_);
   get_parameter("search_radius", search_radius_);
   get_parameter("search_grid_size", search_grid_size_);
   get_parameter("enable_displacement_check", enable_displacement_check_);
@@ -412,6 +415,7 @@ void PCLLocalization::initializeParameters()
   RCLCPP_INFO(get_logger(),"enable_timer_publishing: %d", enable_timer_publishing);
   RCLCPP_INFO(get_logger(),"pose_publish_frequency: %lf", pose_publish_frequency_);
   RCLCPP_INFO(get_logger(),"displacement_threshold: %lf", displacement_threshold_);
+  RCLCPP_INFO(get_logger(),"min_localization_interval: %lf", min_localization_interval_);
   RCLCPP_INFO(get_logger(),"search_radius: %lf", search_radius_);
   RCLCPP_INFO(get_logger(),"search_grid_size: %d", search_grid_size_);
   RCLCPP_INFO(get_logger(),"enable_displacement_check: %d", enable_displacement_check_);
@@ -788,6 +792,9 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
     RCLCPP_DEBUG(get_logger(), "Displacement check failed, skipping localization");
     return;
   }
+  
+  // 记录定位尝试时间（用于限制重试频率）
+  last_localization_attempt_time_ = this->now();
 
   pcl::PointCloud<pcl::PointXYZI>::Ptr output_cloud(new pcl::PointCloud<pcl::PointXYZI>);
   rclcpp::Clock system_clock;
@@ -1113,6 +1120,16 @@ bool PCLLocalization::shouldUpdateLocalization(const geometry_msgs::msg::Pose& c
   // 初始定位阶段（first_localization_done_ == false）始终执行，不需等位移触发
   if (!first_localization_done_) {
     return true;
+  }
+  
+  // 持续定位阶段：检查时间间隔（避免频繁重试）
+  auto now = this->now();
+  double elapsed = (now - last_localization_attempt_time_).seconds();
+  if (elapsed < min_localization_interval_) {
+    RCLCPP_DEBUG(get_logger(), 
+      "Time since last localization attempt: %.1f s < %.1f s, skipping",
+      elapsed, min_localization_interval_);
+    return false;
   }
   
   if (accumulated_odom_distance_ > displacement_threshold_) {

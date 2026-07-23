@@ -169,6 +169,10 @@ public:
   // Odom-based displacement tracking（基于odom的位移累计）
   double accumulated_odom_distance_{0.0};
   
+  // Time-based retry throttling（基于时间的重试限制）
+  rclcpp::Time last_localization_attempt_time_;
+  double min_localization_interval_{2.0};  // 最小重试间隔（秒）
+  
   // Angle search optimization parameters
   bool enable_angle_search_{true};       // Enable angle search for better rotation convergence
   double angle_search_range_{0.349};     // Angle search range in radians (±20 degrees)

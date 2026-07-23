@@ -47,6 +47,7 @@
       
       # New parameters for improved localization
       displacement_threshold: 3.0        # Only update when displacement > 0.3m（位移触发阈值）
+      min_localization_interval: 2.0     # 最小重试间隔（秒），避免频繁计算
       search_radius: 2.0                 # Search radius around initial point（搜索半径）
       search_grid_size: 5                # Grid points per dimension for search（搜索网格密度）
       enable_displacement_check: true    # Enable displacement-based triggering（启用位移检查）
