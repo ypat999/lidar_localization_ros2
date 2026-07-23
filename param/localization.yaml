@@ -78,4 +78,4 @@
       dynamic_threshold_factor: 3.0      # Factor for dynamic threshold (new score must be <= current * factor)（动态阈值因子）
       
       # Initial localization accumulation（初始定位多帧叠加参数）
-      initial_localization_accumulate_frames: 10  # Number of frames to accumulate for initial localization（初始定位叠加帧数，mid360非重复扫描建议10帧以上）
+      initial_localization_accumulate_frames: 1  # Number of frames to accumulate for initial localization（初始定位叠加帧数，mid360非重复扫描建议10帧以上）
