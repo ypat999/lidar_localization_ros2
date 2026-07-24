@@ -780,6 +780,15 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
     cloud_for_registration = accumulated_cloud_ptr_;
   }
   
+  // 检查点云数量是否足够进行配准（GICP 需要 >= k_correspondences 个点）
+  const size_t min_points_for_gicp = 100;  // 至少需要 100 个点
+  if (cloud_for_registration->size() < min_points_for_gicp) {
+    RCLCPP_WARN(get_logger(), 
+      "Point cloud too sparse (%zu points < %zu), skipping localization",
+      cloud_for_registration->size(), min_points_for_gicp);
+    return;
+  }
+  
   registration_->setInputSource(cloud_for_registration);
 
   Eigen::Affine3d affine;
