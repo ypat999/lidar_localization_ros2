@@ -1,8 +1,8 @@
 /**:
     ros__parameters:
       registration_method: "GICP_OMP"   #"GICP_OMP"     "NDT_OMP"
-      initial_score_threshold: 0.5        # 初始定位宽松阈值（可接受较差匹配）
-      ongoing_score_threshold: 0.1        # 持续定位严格阈值（只接受精确匹配）
+      initial_score_threshold: 0.1        # 初始定位宽松阈值（可接受较差匹配）
+      ongoing_score_threshold: 0.05        # 持续定位严格阈值（只接受精确匹配）
       # Per-axis fitness score thresholds（各轴独立阈值，默认与 ongoing_score_threshold 相同）
       ongoing_score_threshold_x: 0.05    # X轴匹配误差平方和阈值
       ongoing_score_threshold_y: 0.05    # Y轴匹配误差平方和阈值
@@ -25,7 +25,7 @@
       scan_min_range: 0.1
       scan_period: 0.1
       use_pcd_map: true
-      map_path: "/home/ywj/slam_data/3d_map/3dmap.pcd" #"/home/ywj/pcd/test.pcd"
+      map_path: "/home/ztl/slam_data/3d_map/1f_down10.pcd" #"/home/ywj/pcd/test.pcd"
       map_topic: "map3d"    #subscribe map topic
       set_initial_pose: true
       initial_pose_x: 0.0
@@ -78,4 +78,4 @@
       dynamic_threshold_factor: 3.0      # Factor for dynamic threshold (new score must be <= current * factor)（动态阈值因子）
       
       # Initial localization accumulation（初始定位多帧叠加参数）
-      initial_localization_accumulate_frames: 10  # Number of frames to accumulate for initial localization（初始定位叠加帧数，mid360非重复扫描建议10帧以上）
+      initial_localization_accumulate_frames: 1  # Number of frames to accumulate for initial localization（初始定位叠加帧数，mid360非重复扫描建议10帧以上）
