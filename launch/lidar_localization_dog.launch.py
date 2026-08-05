@@ -23,12 +23,12 @@ try:
     if global_config_path not in sys.path:
         sys.path.insert(0, global_config_path)
     from global_config import (
-        LOCALIZATION_MAP_PATH,
+        POINT_CLOUD_MAP_PATH,
     )
 except Exception as e:
     print(f"导入global_config失败: {e}")
     # 如果导入失败，使用默认值
-    LOCALIZATION_MAP_PATH = '/home/ztl/slam_data/3d_map/3dmap.pcd'
+    POINT_CLOUD_MAP_PATH = '/home/ztl/slam_data/3d_map/3dmap.pcd'
 
 def generate_launch_description():
 
@@ -73,7 +73,7 @@ def generate_launch_description():
         namespace='',
         package='lidar_localization_ros2',
         executable='lidar_localization_node',
-        parameters=[localization_param_dir, {'map_path': LOCALIZATION_MAP_PATH}],
+        parameters=[localization_param_dir, {'map_path': POINT_CLOUD_MAP_PATH}],
         remappings=[('cloud', cloud_topic),
                     ('imu','/rkbot/livox/imu'),
                     ('odom', odom_topic),
