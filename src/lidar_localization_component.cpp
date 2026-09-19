@@ -757,8 +757,17 @@ bool PCLLocalization::processOriginBaseline(
   const bool in_zone = dist_xy < origin_baseline_radius_;
 
   if (!origin_baseline_ready_) {
-    // ===== 启动阶段：在原点半径内积累基准点云 =====
+    // ===== 启动阶段：先积累基准，期间挂起全局图定位（定位延后做，不冲突） =====
+    if (origin_baseline_aborted_) {
+      return false;  // 已放弃基准，不再拦截全局定位
+    }
     if (in_zone) {
+      if (origin_baseline_frame_count_ == 0) {
+        RCLCPP_INFO(get_logger(),
+          "Collecting origin baseline (%d frames within %.1fm radius); "
+          "global map localization paused until baseline ready",
+          origin_baseline_frames_, origin_baseline_radius_);
+      }
       Eigen::Matrix4f map_to_base_eigen =
         tf2::transformToEigen(map_to_base_stamped.transform).matrix().cast<float>();
       pcl::PointCloud<pcl::PointXYZI>::Ptr map_cloud(new pcl::PointCloud<pcl::PointXYZI>);
@@ -773,19 +782,29 @@ bool PCLLocalization::processOriginBaseline(
         origin_registration_->setInputTarget(origin_baseline_cloud_ptr_);
         RCLCPP_INFO(get_logger(),
           "Origin baseline ready: %d frames accumulated, %lu points (full resolution, no downsample), "
-          "landing refinement arms within %.1fm of world origin",
+          "landing refinement arms within %.1fm of world origin; resuming global map localization",
           origin_baseline_frames_, origin_baseline_cloud_ptr_->size(),
           origin_baseline_radius_);
+        // 就绪当帧即放行，交给下面的初始定位流程处理
+        return false;
       }
-    } else if (origin_baseline_frame_count_ > 0) {
-      // 基准未积累完就离开原点范围，丢弃残缺基准，回到圈内重新积累
+      return true;  // 积累中：挂起全局图定位，避免初始匹配修正 map->odom 打断基准拼接
+    }
+
+    // 未攒满就离开原点半径（如开机即起飞）：基准作废，立即恢复全局定位流程
+    origin_baseline_aborted_ = true;
+    if (origin_baseline_frame_count_ > 0) {
       RCLCPP_WARN(get_logger(),
-        "Left origin radius (%.2f m) with incomplete baseline (%d/%d frames), discarding",
+        "Left origin radius (xy=%.2fm) with incomplete baseline (%d/%d frames), discarding",
         dist_xy, origin_baseline_frame_count_, origin_baseline_frames_);
       origin_baseline_cloud_ptr_->clear();
       origin_baseline_frame_count_ = 0;
     }
-    return false;  // 积累阶段不拦截正常定位流程
+    RCLCPP_INFO(get_logger(),
+      "Origin baseline aborted (drone outside %.1fm radius before collection finished); "
+      "global map localization proceeds, landing falls back to global map matching",
+      origin_baseline_radius_);
+    return false;
   }
 
   if (!in_zone) {
@@ -1031,8 +1050,9 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
   pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_for_registration = tmp_ptr;
 
   // 原点基准精准降落：先做基准积累/进圈匹配处理。
-  // 返回 true 表示该帧已由降落基准逻辑接管（进圈后跳过全局图匹配，
-  // 由基准匹配的最低误差结果独占 map->odom 静态TF）。
+  // 返回 true 表示该帧已由基准逻辑接管：
+  //  - 启动积累期：挂起全局图定位（先收基准，定位延后做，避免 map->odom 中途被修正）
+  //  - 降落进圈后：跳过全局图匹配，由基准匹配的最低误差结果独占 map->odom 静态TF
   if (enable_origin_baseline_ && processOriginBaseline(msg, cloud_for_registration)) {
     last_scan_ptr_ = msg;
     return;

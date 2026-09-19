@@ -193,10 +193,14 @@ public:
   pcl::KdTreeFLANN<pcl::PointXYZI>::Ptr target_kdtree_;
 
   // ===== Origin baseline precision landing (原点基准精准降落) =====
-  // 启动时在原点附近积累 N 帧点云，按 map->base TF 变换到 map 系合并成
-  // 一张完整独立的基准地图（不降采样，全分辨率作为匹配target）；
-  // 无人机回到 xy 半径内时，切换到该地图以 1Hz 直接持续匹配，
-  // 仅当结果误差低于本次进圈后的历史最低值时才更新 map->odom 静态TF。
+  // 时序（刻意保证）：
+  // 1) 启动后先在原点半径内积累 N 帧点云（按 map->base TF 变换到 map 系合并，
+  //    全分辨率不降采样）作为独立基准地图；积累期间挂起全局图初始定位，
+  //    避免初始匹配中途修正 map->odom 导致基准帧位姿跳变、基准图重影；
+  // 2) 基准就绪后再放行全局图定位（初始匹配/持续匹配照常，只是延后）；
+  // 3) 若未攒满就离开原点半径，基准作废并立即恢复全局定位（定位不可长期缺位）；
+  // 4) 返航进入 xy 半径后切换到基准地图以 1Hz 直接匹配，
+  //    仅当误差低于本次进圈后的历史最低值时才更新 map->odom 静态TF。
   bool enable_origin_baseline_{false};
   int origin_baseline_frames_{10};          // 积累帧数（可配置）
   double origin_baseline_radius_{1.5};      // 原点触发半径（米，xy）
@@ -205,6 +209,7 @@ public:
     new pcl::PointCloud<pcl::PointXYZI>};
   int origin_baseline_frame_count_{0};
   bool origin_baseline_ready_{false};
+  bool origin_baseline_aborted_{false};     // 未攒满即离圈，本次运行放弃基准
   bool in_landing_zone_{false};
   double landing_best_fitness_{std::numeric_limits<double>::max()};
   bool has_last_baseline_match_time_{false};
@@ -215,6 +220,8 @@ public:
   boost::shared_ptr<pcl::Registration<pcl::PointXYZI, pcl::PointXYZI>> origin_registration_;
 
   // Helper methods
+  // 返回 true 表示本帧已由基准逻辑接管（积累中挂起全局定位，
+  // 或降落圈内已做基准匹配），主流程应跳过全局图匹配
   bool processOriginBaseline(
     const sensor_msgs::msg::PointCloud2::ConstSharedPtr & msg,
     const pcl::PointCloud<pcl::PointXYZI>::Ptr & cloud_base);
