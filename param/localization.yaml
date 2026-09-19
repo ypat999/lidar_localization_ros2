@@ -81,8 +81,9 @@
       initial_localization_accumulate_frames: 1  # Number of frames to accumulate for initial localization（初始定位叠加帧数，mid360非重复扫描建议10帧以上）
 
       # Origin baseline precision landing（原点基准精准降落）
-      # 启动时在原点半径内积累 N 帧点云（map系）作为原点基准；
-      # 返航进入半径后以 1Hz 与基准持续匹配，仅以本次进圈后的最低误差结果更新 map->odom 静态TF；
+      # 启动时在原点半径内积累 N 帧点云，按 map->base TF 变换到 map 系合并成
+      # 一张完整独立的基准地图（不降采样）；
+      # 返航进入半径后切换到该地图以 1Hz 直接匹配，仅以本次进圈后的最低误差结果更新 map->odom 静态TF；
       # 出圈后恢复全局图定位，下次起飞自然重新匹配。
       enable_origin_baseline: true
       origin_baseline_frames: 10           # 启动时积累的基准帧数（可配置）

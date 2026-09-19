@@ -193,8 +193,9 @@ public:
   pcl::KdTreeFLANN<pcl::PointXYZI>::Ptr target_kdtree_;
 
   // ===== Origin baseline precision landing (原点基准精准降落) =====
-  // 启动时在原点附近积累 N 帧点云（map系）作为"原点基准"；
-  // 无人机回到 xy 半径内时，以 1Hz 与基准持续匹配，
+  // 启动时在原点附近积累 N 帧点云，按 map->base TF 变换到 map 系合并成
+  // 一张完整独立的基准地图（不降采样，全分辨率作为匹配target）；
+  // 无人机回到 xy 半径内时，切换到该地图以 1Hz 直接持续匹配，
   // 仅当结果误差低于本次进圈后的历史最低值时才更新 map->odom 静态TF。
   bool enable_origin_baseline_{false};
   int origin_baseline_frames_{10};          // 积累帧数（可配置）

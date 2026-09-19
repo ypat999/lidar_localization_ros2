@@ -767,22 +767,15 @@ bool PCLLocalization::processOriginBaseline(
       origin_baseline_frame_count_++;
 
       if (origin_baseline_frame_count_ >= origin_baseline_frames_) {
-        // 体素降采样后作为匹配target
-        pcl::PointCloud<pcl::PointXYZI>::Ptr downsampled(new pcl::PointCloud<pcl::PointXYZI>);
-        pcl::VoxelGrid<pcl::PointXYZI> ds;
-        ds.setLeafSize(voxel_leaf_size_, voxel_leaf_size_, voxel_leaf_size_);
-        ds.setInputCloud(origin_baseline_cloud_ptr_);
-        ds.filter(*downsampled);
-        origin_baseline_cloud_ptr_.swap(downsampled);
-
+        // 基准点云完整保留（不降采样），作为降落阶段的独立高精度匹配地图
         origin_baseline_ready_ = true;
         createOriginRegistration();
         origin_registration_->setInputTarget(origin_baseline_cloud_ptr_);
         RCLCPP_INFO(get_logger(),
-          "Origin baseline ready: %d frames accumulated, %lu points (leaf %.2fm), "
+          "Origin baseline ready: %d frames accumulated, %lu points (full resolution, no downsample), "
           "landing refinement arms within %.1fm of world origin",
           origin_baseline_frames_, origin_baseline_cloud_ptr_->size(),
-          voxel_leaf_size_, origin_baseline_radius_);
+          origin_baseline_radius_);
       }
     } else if (origin_baseline_frame_count_ > 0) {
       // 基准未积累完就离开原点范围，丢弃残缺基准，回到圈内重新积累
