@@ -65,6 +65,55 @@ void PCLLocalization::initializeRegistration()
   RCLCPP_INFO(get_logger(), "initializeRegistration end");
 }
 
+// ===== createOriginRegistration: 原点基准匹配专用配准实例（参数与主配准一致） =====
+
+void PCLLocalization::createOriginRegistration()
+{
+  if (registration_method_ == "GICP") {
+    boost::shared_ptr<pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI>> gicp(
+      new pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI>());
+    gicp->setTransformationEpsilon(transform_epsilon_);
+    origin_registration_ = gicp;
+  }
+  else if (registration_method_ == "NDT") {
+    boost::shared_ptr<pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI>> ndt(
+      new pcl::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI>());
+    ndt->setStepSize(ndt_step_size_);
+    ndt->setResolution(ndt_resolution_);
+    ndt->setTransformationEpsilon(transform_epsilon_);
+    origin_registration_ = ndt;
+  }
+  else if (registration_method_ == "NDT_OMP") {
+    pclomp::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI>::Ptr ndt_omp(
+      new pclomp::NormalDistributionsTransform<pcl::PointXYZI, pcl::PointXYZI>());
+    ndt_omp->setStepSize(ndt_step_size_);
+    ndt_omp->setResolution(ndt_resolution_);
+    ndt_omp->setTransformationEpsilon(transform_epsilon_);
+    if (ndt_num_threads_ > 0) {
+      ndt_omp->setNumThreads(ndt_num_threads_);
+    } else {
+      ndt_omp->setNumThreads(omp_get_max_threads());
+    }
+    origin_registration_ = ndt_omp;
+  }
+  else if (registration_method_ == "GICP_OMP") {
+    pclomp::GeneralizedIterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI>::Ptr gicp_omp(
+      new pclomp::GeneralizedIterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI>());
+    gicp_omp->setTransformationEpsilon(transform_epsilon_);
+    gicp_omp->setMaxCorrespondenceDistance(gicp_corr_dist_threshold_);
+    gicp_omp->setRotationEpsilon(gicp_rotation_epsilon_);
+    gicp_omp->setCorrespondenceRandomness(gicp_k_correspondences_);
+    gicp_omp->setMaximumOptimizerIterations(gicp_max_optimizer_iterations_);
+    gicp_omp->setGICPEpsilon(gicp_epsilon_);
+    origin_registration_ = gicp_omp;
+  }
+  else {
+    RCLCPP_ERROR(get_logger(), "Invalid registration method for origin baseline.");
+    exit(EXIT_FAILURE);
+  }
+  origin_registration_->setMaximumIterations(ndt_max_iterations_);
+}
+
 // ===== searchOptimalTransformation =====
 
 PCLLocalization::SearchResult PCLLocalization::searchOptimalTransformation(

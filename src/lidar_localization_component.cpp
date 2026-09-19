@@ -1,4 +1,5 @@
 #include <lidar_localization/lidar_localization_component.hpp>
+#include <algorithm>
 #include <chrono>
 #include <numeric>
 #include <thread>
@@ -72,6 +73,12 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
   declare_parameter("enable_dynamic_threshold", true);
   declare_parameter("dynamic_threshold_factor", 2.0);
   declare_parameter("initial_localization_accumulate_frames", 10);
+
+  // Origin baseline precision landing (原点基准精准降落)
+  declare_parameter("enable_origin_baseline", false);
+  declare_parameter("origin_baseline_frames", 10);
+  declare_parameter("origin_baseline_radius", 1.5);
+  declare_parameter("origin_baseline_match_interval", 1.0);
   
   // GICP-specific parameters
   declare_parameter("gicp_corr_dist_threshold", 5.0);
@@ -131,6 +138,10 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
         else if (name == "ongoing_score_threshold_y") ongoing_score_threshold_y_ = p.as_double();
         else if (name == "ongoing_score_threshold_z") ongoing_score_threshold_z_ = p.as_double();
         else if (name == "initial_localization_accumulate_frames") initial_localization_accumulate_frames_ = p.as_int();
+        else if (name == "enable_origin_baseline") enable_origin_baseline_ = p.as_bool();
+        else if (name == "origin_baseline_frames") origin_baseline_frames_ = p.as_int();
+        else if (name == "origin_baseline_radius") origin_baseline_radius_ = p.as_double();
+        else if (name == "origin_baseline_match_interval") origin_baseline_match_interval_ = p.as_double();
         else if (name == "gicp_corr_dist_threshold") gicp_corr_dist_threshold_ = p.as_double();
         else if (name == "gicp_rotation_epsilon") gicp_rotation_epsilon_ = p.as_double();
         else if (name == "gicp_k_correspondences") gicp_k_correspondences_ = p.as_int();
@@ -393,6 +404,11 @@ void PCLLocalization::initializeParameters()
   get_parameter("dynamic_threshold_factor", dynamic_threshold_factor_);
   get_parameter("initial_localization_accumulate_frames", initial_localization_accumulate_frames_);
 
+  get_parameter("enable_origin_baseline", enable_origin_baseline_);
+  get_parameter("origin_baseline_frames", origin_baseline_frames_);
+  get_parameter("origin_baseline_radius", origin_baseline_radius_);
+  get_parameter("origin_baseline_match_interval", origin_baseline_match_interval_);
+
   RCLCPP_INFO(get_logger(),"global_frame_id: %s", global_frame_id_.c_str());
   RCLCPP_INFO(get_logger(),"odom_frame_id: %s", odom_frame_id_.c_str());
   RCLCPP_INFO(get_logger(),"base_frame_id: %s", base_frame_id_.c_str());
@@ -431,6 +447,9 @@ void PCLLocalization::initializeParameters()
   RCLCPP_INFO(get_logger(),"ongoing_score_threshold_y: %lf", ongoing_score_threshold_y_);
   RCLCPP_INFO(get_logger(),"ongoing_score_threshold_z: %lf", ongoing_score_threshold_z_);
   RCLCPP_INFO(get_logger(),"initial_localization_accumulate_frames: %d", initial_localization_accumulate_frames_);
+  RCLCPP_INFO(get_logger(),"enable_origin_baseline: %d, frames: %d, radius: %.2f, match_interval: %.2f",
+              enable_origin_baseline_, origin_baseline_frames_, origin_baseline_radius_,
+              origin_baseline_match_interval_);
 
   // GICP-specific parameters
   get_parameter("gicp_corr_dist_threshold", gicp_corr_dist_threshold_);
@@ -706,6 +725,261 @@ void PCLLocalization::imuReceived(const sensor_msgs::msg::Imu::ConstSharedPtr ms
 
 }
 
+bool PCLLocalization::processOriginBaseline(
+  const sensor_msgs::msg::PointCloud2::ConstSharedPtr & msg,
+  const pcl::PointCloud<pcl::PointXYZI>::Ptr & cloud_base)
+{
+  // 维护滚动帧缓存（基准积累期与降落匹配期共用）
+  recent_clouds_.emplace_back(cloud_base, rclcpp::Time(msg->header.stamp));
+  const size_t max_keep = static_cast<size_t>(std::max(origin_baseline_frames_, 1));
+  while (recent_clouds_.size() > max_keep) {
+    recent_clouds_.pop_front();
+  }
+
+  // 当前 map->base（TF 优先按帧时间戳，退化到最新）
+  geometry_msgs::msg::TransformStamped map_to_base_stamped;
+  try {
+    map_to_base_stamped = tfbuffer_.lookupTransform(
+      global_frame_id_, base_frame_id_, msg->header.stamp,
+      rclcpp::Duration::from_seconds(0.1));
+  } catch (const tf2::TransformException &) {
+    try {
+      map_to_base_stamped = tfbuffer_.lookupTransform(
+        global_frame_id_, base_frame_id_, tf2::TimePointZero);
+    } catch (const tf2::TransformException &) {
+      return false;  // TF 尚不可用，本帧交给正常流程
+    }
+  }
+  tf2::Transform map_to_base;
+  tf2::fromMsg(map_to_base_stamped.transform, map_to_base);
+  const tf2::Vector3 & pos = map_to_base.getOrigin();
+  const double dist_xy = std::hypot(pos.x(), pos.y());
+  const bool in_zone = dist_xy < origin_baseline_radius_;
+
+  if (!origin_baseline_ready_) {
+    // ===== 启动阶段：在原点半径内积累基准点云 =====
+    if (in_zone) {
+      Eigen::Matrix4f map_to_base_eigen =
+        tf2::transformToEigen(map_to_base_stamped.transform).matrix().cast<float>();
+      pcl::PointCloud<pcl::PointXYZI>::Ptr map_cloud(new pcl::PointCloud<pcl::PointXYZI>);
+      pcl::transformPointCloud(*cloud_base, *map_cloud, map_to_base_eigen);
+      *origin_baseline_cloud_ptr_ += *map_cloud;
+      origin_baseline_frame_count_++;
+
+      if (origin_baseline_frame_count_ >= origin_baseline_frames_) {
+        // 体素降采样后作为匹配target
+        pcl::PointCloud<pcl::PointXYZI>::Ptr downsampled(new pcl::PointCloud<pcl::PointXYZI>);
+        pcl::VoxelGrid<pcl::PointXYZI> ds;
+        ds.setLeafSize(voxel_leaf_size_, voxel_leaf_size_, voxel_leaf_size_);
+        ds.setInputCloud(origin_baseline_cloud_ptr_);
+        ds.filter(*downsampled);
+        origin_baseline_cloud_ptr_.swap(downsampled);
+
+        origin_baseline_ready_ = true;
+        createOriginRegistration();
+        origin_registration_->setInputTarget(origin_baseline_cloud_ptr_);
+        RCLCPP_INFO(get_logger(),
+          "Origin baseline ready: %d frames accumulated, %lu points (leaf %.2fm), "
+          "landing refinement arms within %.1fm of world origin",
+          origin_baseline_frames_, origin_baseline_cloud_ptr_->size(),
+          voxel_leaf_size_, origin_baseline_radius_);
+      }
+    } else if (origin_baseline_frame_count_ > 0) {
+      // 基准未积累完就离开原点范围，丢弃残缺基准，回到圈内重新积累
+      RCLCPP_WARN(get_logger(),
+        "Left origin radius (%.2f m) with incomplete baseline (%d/%d frames), discarding",
+        dist_xy, origin_baseline_frame_count_, origin_baseline_frames_);
+      origin_baseline_cloud_ptr_->clear();
+      origin_baseline_frame_count_ = 0;
+    }
+    return false;  // 积累阶段不拦截正常定位流程
+  }
+
+  if (!in_zone) {
+    if (in_landing_zone_) {
+      in_landing_zone_ = false;
+      RCLCPP_INFO(get_logger(),
+        "Left origin landing zone (xy=%.2f m), best baseline fitness=%.6f, resuming global map localization",
+        dist_xy, landing_best_fitness_);
+    }
+    return false;
+  }
+
+  // ===== 降落阶段：进圈立即开始，以配置周期(默认1Hz)与基准持续匹配 =====
+  rclcpp::Time now_t = this->now();
+  if (!in_landing_zone_) {
+    in_landing_zone_ = true;
+    landing_best_fitness_ = std::numeric_limits<double>::max();
+    // 回拨一个周期，使首帧立即触发匹配
+    last_baseline_match_time_ =
+      rclcpp::Time(now_t.nanoseconds(), now_t.get_clock_type()) -
+      rclcpp::Duration::from_seconds(origin_baseline_match_interval_);
+    has_last_baseline_match_time_ = true;
+    RCLCPP_INFO(get_logger(),
+      "Entered origin landing zone (xy=%.2f m < %.2f m), matching baseline every %.1fs, "
+      "static TF keeps lowest-error result",
+      dist_xy, origin_baseline_radius_, origin_baseline_match_interval_);
+  }
+
+  if (!has_last_baseline_match_time_ ||
+      now_t - last_baseline_match_time_ >=
+      rclcpp::Duration::from_seconds(origin_baseline_match_interval_))
+  {
+    last_baseline_match_time_ = now_t;
+    has_last_baseline_match_time_ = true;
+    runBaselineLandingMatch(map_to_base, rclcpp::Time(msg->header.stamp));
+  }
+  return true;  // 进圈后本帧由基准降落逻辑接管
+}
+
+void PCLLocalization::runBaselineLandingMatch(
+  const tf2::Transform & map_to_base_cur, const rclcpp::Time & cloud_stamp)
+{
+  // 将滚动帧缓存按各自时刻的 map->base 变换到 map 系，合成匹配源
+  pcl::PointCloud<pcl::PointXYZI>::Ptr source_ptr(new pcl::PointCloud<pcl::PointXYZI>);
+  for (const auto & frame : recent_clouds_) {
+    geometry_msgs::msg::TransformStamped m2b;
+    try {
+      m2b = tfbuffer_.lookupTransform(
+        global_frame_id_, base_frame_id_, frame.second,
+        rclcpp::Duration::from_seconds(0.05));
+    } catch (const tf2::TransformException &) {
+      try {
+        m2b = tfbuffer_.lookupTransform(
+          global_frame_id_, base_frame_id_, tf2::TimePointZero);
+      } catch (const tf2::TransformException &) {
+        continue;
+      }
+    }
+    Eigen::Matrix4f T = tf2::transformToEigen(m2b.transform).matrix().cast<float>();
+    pcl::PointCloud<pcl::PointXYZI>::Ptr frame_in_map(new pcl::PointCloud<pcl::PointXYZI>);
+    pcl::transformPointCloud(*frame.first, *frame_in_map, T);
+    *source_ptr += *frame_in_map;
+  }
+
+  const size_t min_points = 100;
+  if (source_ptr->size() < min_points) {
+    RCLCPP_DEBUG(get_logger(),
+      "Baseline match skipped: merged source too sparse (%zu < %zu points)",
+      source_ptr->size(), min_points);
+    return;
+  }
+
+  rclcpp::Clock system_clock;
+  rclcpp::Time t0 = system_clock.now();
+  origin_registration_->setInputSource(source_ptr);
+  pcl::PointCloud<pcl::PointXYZI>::Ptr align_out(new pcl::PointCloud<pcl::PointXYZI>);
+  Eigen::Matrix4f guess = Eigen::Matrix4f::Identity();  // 源已在map系，只需小幅精修
+  origin_registration_->align(*align_out, guess);
+  rclcpp::Time t1 = system_clock.now();
+  addPerformanceStatistics(
+    registration_method_.find("GICP") != std::string::npos ? "ICP" : "NDT",
+    std::chrono::duration_cast<std::chrono::milliseconds>((t1 - t0).to_chrono<std::chrono::nanoseconds>()).count());
+
+  if (!origin_registration_->hasConverged()) {
+    RCLCPP_DEBUG(get_logger(), "Baseline match not converged, skipping");
+    return;
+  }
+  const double fitness = origin_registration_->getFitnessScore();
+
+  // 只接受比本次进圈后历史最低误差更好的结果
+  if (!(fitness < landing_best_fitness_)) {
+    RCLCPP_DEBUG(get_logger(),
+      "Baseline match fitness %.6f >= best %.6f, keeping previous static TF",
+      fitness, landing_best_fitness_);
+    return;
+  }
+
+  // 精修结果（近似单位阵的修正量）叠加到当前 map->base
+  Eigen::Matrix4f refined = origin_registration_->getFinalTransformation();
+
+  // 合理性门：修正量应是小幅度调整，防止离群误匹配污染TF
+  const double max_corr_translation = 1.0;   // m
+  const double max_corr_rotation = 0.26;     // rad (~15deg)
+  const double corr_translation = refined.block<3, 1>(0, 3).norm();
+  const Eigen::AngleAxisf corr_angle(refined.block<3, 3>(0, 0).cast<float>());
+  if (corr_translation > max_corr_translation || corr_angle.angle() > max_corr_rotation) {
+    RCLCPP_WARN(get_logger(),
+      "Baseline match rejected as outlier: corr_t=%.2fm corr_rot=%.1fdeg (fitness %.6f)",
+      corr_translation, corr_angle.angle() * 180.0 / M_PI, fitness);
+    return;
+  }
+
+  // tf2::Transform -> Eigen 4x4，再叠加精修量：map->base = Δ * 当前map->base
+  tf2::Quaternion q_cur = map_to_base_cur.getRotation();
+  Eigen::Matrix4d cur_mat = Eigen::Matrix4d::Identity();
+  cur_mat.block<3, 3>(0, 0) =
+    Eigen::Quaterniond(q_cur.x(), q_cur.y(), q_cur.z(), q_cur.w()).toRotationMatrix();
+  cur_mat(0, 3) = map_to_base_cur.getOrigin().x();
+  cur_mat(1, 3) = map_to_base_cur.getOrigin().y();
+  cur_mat(2, 3) = map_to_base_cur.getOrigin().z();
+
+  Eigen::Matrix4d total = refined.cast<double>() * cur_mat;
+  Eigen::Quaterniond q(total.block<3, 3>(0, 0));
+  q.normalize();
+  tf2::Transform map_to_base_tf;
+  map_to_base_tf.setOrigin(tf2::Vector3(total(0, 3), total(1, 3), total(2, 3)));
+  map_to_base_tf.setRotation(tf2::Quaternion(q.x(), q.y(), q.z(), q.w()));
+
+  geometry_msgs::msg::TransformStamped odom_to_base_stamped;
+  try {
+    odom_to_base_stamped = tfbuffer_.lookupTransform(
+      odom_frame_id_, base_frame_id_, cloud_stamp, rclcpp::Duration::from_seconds(0.5));
+  } catch (const tf2::TransformException &) {
+    try {
+      odom_to_base_stamped = tfbuffer_.lookupTransform(
+        odom_frame_id_, base_frame_id_, tf2::TimePointZero);
+    } catch (const tf2::TransformException & ex2) {
+      RCLCPP_WARN(get_logger(),
+        "Baseline match: no odom->%s TF, skipping TF update: %s",
+        base_frame_id_.c_str(), ex2.what());
+      return;
+    }
+  }
+  tf2::Transform odom_to_base_tf;
+  tf2::fromMsg(odom_to_base_stamped.transform, odom_to_base_tf);
+  tf2::Transform map_to_odom_tf = map_to_base_tf * odom_to_base_tf.inverse();
+
+  // 新历史最低误差：以静态TF发布，锁定为本次降落的 map->odom
+  landing_best_fitness_ = fitness;
+
+  geometry_msgs::msg::TransformStamped map_to_odom_stamped;
+  map_to_odom_stamped.header.stamp = cloud_stamp;
+  map_to_odom_stamped.header.frame_id = global_frame_id_;
+  map_to_odom_stamped.child_frame_id = odom_frame_id_;
+  map_to_odom_stamped.transform = tf2::toMsg(map_to_odom_tf);
+  static_broadcaster_.sendTransform(map_to_odom_stamped);
+
+  geometry_msgs::msg::PoseWithCovarianceStamped map_odom_pose_msg;
+  map_odom_pose_msg.header.stamp = cloud_stamp;
+  map_odom_pose_msg.header.frame_id = global_frame_id_;
+  map_odom_pose_msg.pose.pose.position.x = map_to_odom_tf.getOrigin().x();
+  map_odom_pose_msg.pose.pose.position.y = map_to_odom_tf.getOrigin().y();
+  map_odom_pose_msg.pose.pose.position.z = map_to_odom_tf.getOrigin().z();
+  map_odom_pose_msg.pose.pose.orientation = tf2::toMsg(map_to_odom_tf.getRotation());
+  for (int i = 0; i < 36; ++i) {
+    map_odom_pose_msg.pose.covariance[i] = 0.0;
+  }
+  map_odom_pose_msg.pose.covariance[0] = fitness;
+  map_odom_pose_msg.pose.covariance[7] = fitness;
+  map_odom_pose_msg.pose.covariance[14] = fitness;
+  map_odom_pose_msg.pose.covariance[21] = fitness;
+  map_odom_pose_msg.pose.covariance[28] = fitness;
+  map_odom_pose_msg.pose.covariance[35] = fitness;
+  if (map_odom_pose_pub_ && map_odom_pose_pub_->is_activated()) {
+    map_odom_pose_pub_->publish(map_odom_pose_msg);
+  }
+
+  RCLCPP_INFO(get_logger(),
+    "Landing baseline NEW BEST fitness=%.6f | map->odom t=(%.3f, %.3f, %.3f) q=(%.4f, %.4f, %.4f, %.4f) "
+    "| corr t=%.3fm rot=%.1fdeg",
+    fitness,
+    map_to_odom_tf.getOrigin().x(), map_to_odom_tf.getOrigin().y(), map_to_odom_tf.getOrigin().z(),
+    map_to_odom_tf.getRotation().x(), map_to_odom_tf.getRotation().y(),
+    map_to_odom_tf.getRotation().z(), map_to_odom_tf.getRotation().w(),
+    corr_translation, corr_angle.angle() * 180.0 / M_PI);
+}
+
 void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg)
 {
   if (!msg) {
@@ -762,6 +1036,14 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
   pcl::PointCloud<pcl::PointXYZI>::Ptr tmp_ptr(new pcl::PointCloud<pcl::PointXYZI>(tmp));
   
   pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_for_registration = tmp_ptr;
+
+  // 原点基准精准降落：先做基准积累/进圈匹配处理。
+  // 返回 true 表示该帧已由降落基准逻辑接管（进圈后跳过全局图匹配，
+  // 由基准匹配的最低误差结果独占 map->odom 静态TF）。
+  if (enable_origin_baseline_ && processOriginBaseline(msg, cloud_for_registration)) {
+    last_scan_ptr_ = msg;
+    return;
+  }
 
   if (!first_localization_done_ && initial_localization_accumulate_frames_ > 1) {
     *accumulated_cloud_ptr_ += *tmp_ptr;

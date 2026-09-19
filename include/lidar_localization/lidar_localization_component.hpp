@@ -1,4 +1,5 @@
 #include <chrono>
+#include <deque>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -14,6 +15,7 @@
 #include <pcl/kdtree/kdtree_flann.h>
 
 #include <tf2/transform_datatypes.h>
+#include <tf2/LinearMath/Transform.h>
 #include <tf2/utils.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
@@ -189,8 +191,35 @@ public:
   
   // KdTree for target map (用于 per-axis fitness score 计算)
   pcl::KdTreeFLANN<pcl::PointXYZI>::Ptr target_kdtree_;
-  
+
+  // ===== Origin baseline precision landing (原点基准精准降落) =====
+  // 启动时在原点附近积累 N 帧点云（map系）作为"原点基准"；
+  // 无人机回到 xy 半径内时，以 1Hz 与基准持续匹配，
+  // 仅当结果误差低于本次进圈后的历史最低值时才更新 map->odom 静态TF。
+  bool enable_origin_baseline_{false};
+  int origin_baseline_frames_{10};          // 积累帧数（可配置）
+  double origin_baseline_radius_{1.5};      // 原点触发半径（米，xy）
+  double origin_baseline_match_interval_{1.0};  // 基准匹配周期（秒），默认1Hz
+  pcl::PointCloud<pcl::PointXYZI>::Ptr origin_baseline_cloud_ptr_{
+    new pcl::PointCloud<pcl::PointXYZI>};
+  int origin_baseline_frame_count_{0};
+  bool origin_baseline_ready_{false};
+  bool in_landing_zone_{false};
+  double landing_best_fitness_{std::numeric_limits<double>::max()};
+  bool has_last_baseline_match_time_{false};
+  rclcpp::Time last_baseline_match_time_{0, 0, RCL_ROS_TIME};
+  // 滚动帧缓存：(base系滤波后点云, 采集时间戳)，最近 origin_baseline_frames_ 帧
+  std::deque<std::pair<pcl::PointCloud<pcl::PointXYZI>::Ptr, rclcpp::Time>> recent_clouds_;
+  // 与基准匹配专用的配准实例（避免干扰主 registration_ 的全图target）
+  boost::shared_ptr<pcl::Registration<pcl::PointXYZI, pcl::PointXYZI>> origin_registration_;
+
   // Helper methods
+  bool processOriginBaseline(
+    const sensor_msgs::msg::PointCloud2::ConstSharedPtr & msg,
+    const pcl::PointCloud<pcl::PointXYZI>::Ptr & cloud_base);
+  void runBaselineLandingMatch(
+    const tf2::Transform & map_to_base, const rclcpp::Time & cloud_stamp);
+  void createOriginRegistration();
   double calculateDisplacement(const geometry_msgs::msg::Pose& current_pose);
   bool shouldUpdateLocalization(const geometry_msgs::msg::Pose& current_pose);
   void computePerAxisFitnessScore(
