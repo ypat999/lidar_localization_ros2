@@ -79,7 +79,7 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
   declare_parameter("origin_baseline_frames", 10);
   declare_parameter("origin_baseline_radius", 1.5);
   declare_parameter("origin_baseline_match_interval", 1.0);
-  declare_parameter("origin_baseline_base_frame", "base_link");
+  declare_parameter("origin_baseline_base_frame", "base_footprint");
   
   // GICP-specific parameters
   declare_parameter("gicp_corr_dist_threshold", 5.0);
@@ -762,12 +762,29 @@ bool PCLLocalization::processOriginBaseline(
 
   // 基准已就绪且不在圈内（或正在离圈）：不处理点云，交回主流程
   if (origin_baseline_ready_ && !in_zone) {
+    // 首次离圈 = 起飞动作，此后才武装降落匹配（防止坪上待机时误接管 map->odom）
+    if (!origin_baseline_departed_) {
+      origin_baseline_departed_ = true;
+      RCLCPP_INFO(get_logger(),
+        "Origin baseline armed: left takeoff zone (xy=%.2f m), landing refinement will engage on return",
+        dist_xy);
+    }
     if (in_landing_zone_) {
       in_landing_zone_ = false;
       RCLCPP_INFO(get_logger(),
         "Left origin landing zone (xy=%.2f m), best baseline fitness=%.6f, resuming global map localization",
         dist_xy, landing_best_fitness_);
     }
+    return false;
+  }
+
+  // 未起飞（基准已就绪但从未离圈）：降落匹配不接管，全局定位保持权威。
+  // 飞机还停在坪上，此时做"降落匹配"只会用恒等修正干扰 map->odom。
+  // 注意：必须在 ready_ 判定之后，否则会挡住上面的基准积累。
+  if (origin_baseline_ready_ && !origin_baseline_departed_) {
+    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 10000,
+      "Origin baseline ready on pad; landing refinement arms after first takeoff (xy=%.2f m)",
+      dist_xy);
     return false;
   }
 
@@ -997,6 +1014,28 @@ void PCLLocalization::runBaselineLandingMatch(
   tf2::Transform odom_to_anchor_tf;
   tf2::fromMsg(odom_to_anchor_stamped.transform, odom_to_anchor_tf);
   tf2::Transform map_to_odom_tf = map_to_anchor_tf * odom_to_anchor_tf.inverse();
+
+  // 突变护栏：与当前生效的 map->odom 比较，旋转>30° 或平移>1m 直接拒绝。
+  // 防御锚定链解析异常（如多父边坐标系的180°路径歧义）产出"自洽但错误"的结果。
+  try {
+    const geometry_msgs::msg::TransformStamped prev_m2o = tfbuffer_.lookupTransform(
+      global_frame_id_, odom_frame_id_, cloud_stamp, rclcpp::Duration::from_seconds(0.1));
+    tf2::Transform prev;
+    tf2::fromMsg(prev_m2o.transform, prev);
+    const tf2::Transform diff = prev.inverse() * map_to_odom_tf;
+    const double diff_t = diff.getOrigin().length();
+    const double diff_rot =
+      2.0 * std::acos(std::min(1.0, std::fabs(diff.getRotation().w())));
+    if (diff_rot > 0.52 || diff_t > 1.0) {
+      RCLCPP_WARN(get_logger(),
+        "Landing baseline map->odom update rejected as jump: rot=%.1fdeg t=%.2fm "
+        "(fitness %.6f) — check anchor frame for multiple parent edges",
+        diff_rot * 180.0 / M_PI, diff_t, fitness);
+      return;  // 不更新 best，后续正常结果仍可发布
+    }
+  } catch (const tf2::TransformException &) {
+    // 尚无 map->odom（理论不应发生），放行，由 corr 幅度门兜底
+  }
 
   // 新历史最低误差：以静态TF发布，锁定为本次降落的 map->odom
   landing_best_fitness_ = fitness;

@@ -205,16 +205,21 @@ public:
   int origin_baseline_frames_{10};          // 积累帧数（可配置）
   double origin_baseline_radius_{1.5};      // 原点触发半径（米，xy）
   double origin_baseline_match_interval_{1.0};  // 基准匹配周期（秒），默认1Hz
-  // 基准锚定坐标系：必须与航点/控制点一致。/lio/robo/odom 的 child 是 base_link
-  // （world系位置=base_link位置，指令驱动的就是它），而主流程 base_frame_id 是
-  // base_footprint（平移=IMU位置、旋转=偏航投影），两者存在杆臂/姿态表示差，
-  // 因此基准地图默认按 base_link 存储与匹配。留空则退回 base_frame_id。
-  std::string origin_baseline_base_frame_{"base_link"};
+  // 基准锚定坐标系。注意：base_link 在本系统是"多父边" contested frame——
+  // launch 静态链 imu->livox_frame->base_link（含 roll180/pitch210 翻转外参）、
+  // demo tf_publisher 还会加 base_footprint->base_link 恒等边，导致
+  // lookup(map,base_link) 与 lookup(odom,base_link) 可能走不同路径，
+  // map->odom 组合出 ~180° 翻转（2026-09-20 实机日志证实），而 fitness 仍"很好"
+  // （源/目标同链自洽）。故锚定主流程验证过的单亲 frame：base_footprint
+  // （平移=IMU位置；与 base_link 仅几厘米杆臂差，平飞时可控）。
+  // 待清理掉 base_link 多父边冲突后，此参数可改回 base_link 消除杆臂差。
+  std::string origin_baseline_base_frame_{"base_footprint"};
   pcl::PointCloud<pcl::PointXYZI>::Ptr origin_baseline_cloud_ptr_{
     new pcl::PointCloud<pcl::PointXYZI>};
   int origin_baseline_frame_count_{0};
   bool origin_baseline_ready_{false};
   bool origin_baseline_aborted_{false};     // 未攒满即离圈，本次运行放弃基准
+  bool origin_baseline_departed_{false};    // 就绪后已至少离过一次圈（起飞），此后才允许降落匹配接管
   bool in_landing_zone_{false};
   double landing_best_fitness_{std::numeric_limits<double>::max()};
   bool has_last_baseline_match_time_{false};
