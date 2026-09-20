@@ -79,7 +79,7 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
   declare_parameter("origin_baseline_frames", 10);
   declare_parameter("origin_baseline_radius", 1.5);
   declare_parameter("origin_baseline_match_interval", 1.0);
-  declare_parameter("origin_baseline_base_frame", "base_footprint");
+  declare_parameter("origin_baseline_base_frame", "base_link");
   
   // GICP-specific parameters
   declare_parameter("gicp_corr_dist_threshold", 5.0);

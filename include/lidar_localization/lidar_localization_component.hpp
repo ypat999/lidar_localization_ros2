@@ -205,15 +205,13 @@ public:
   int origin_baseline_frames_{10};          // 积累帧数（可配置）
   double origin_baseline_radius_{1.5};      // 原点触发半径（米，xy）
   double origin_baseline_match_interval_{1.0};  // 基准匹配周期（秒），默认1Hz
-  // 基准锚定坐标系。注意：base_link 在本系统是"多父边" contested frame——
-  // launch 静态链 imu->livox_frame->base_link（含 roll180/pitch210 翻转外参）、
-  // demo tf_publisher 还会加 base_footprint->base_link 恒等边，导致
-  // lookup(map,base_link) 与 lookup(odom,base_link) 可能走不同路径，
-  // map->odom 组合出 ~180° 翻转（2026-09-20 实机日志证实），而 fitness 仍"很好"
-  // （源/目标同链自洽）。故锚定主流程验证过的单亲 frame：base_footprint
-  // （平移=IMU位置；与 base_link 仅几厘米杆臂差，平飞时可控）。
-  // 待清理掉 base_link 多父边冲突后，此参数可改回 base_link 消除杆臂差。
-  std::string origin_baseline_base_frame_{"base_footprint"};
+  // 基准锚定坐标系：base_link（航点/控制点，与 /lio/robo/odom 的 child 一致，
+  // 实测其方向与 TF 静态链 imu->livox_frame->base_link 相同，无 180° 歧义）。
+  // 2026-09-20 坪上曾出现 map->odom 输出 180° 翻转：根因锁定为 launch 的
+  // 恒等 map->odom 与 lidar_localization 修正值双发布 /tf_static 竞态
+  // （已从 Livox_mid360_drone.py 注释掉恒等发布），并叠加坪上未起飞即误触发
+  // 降落接管（已加 departed 武装门）与 >30°/1m 跳变护栏。
+  std::string origin_baseline_base_frame_{"base_link"};
   pcl::PointCloud<pcl::PointXYZI>::Ptr origin_baseline_cloud_ptr_{
     new pcl::PointCloud<pcl::PointXYZI>};
   int origin_baseline_frame_count_{0};
