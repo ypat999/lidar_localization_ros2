@@ -205,6 +205,11 @@ public:
   int origin_baseline_frames_{10};          // 积累帧数（可配置）
   double origin_baseline_radius_{1.5};      // 原点触发半径（米，xy）
   double origin_baseline_match_interval_{1.0};  // 基准匹配周期（秒），默认1Hz
+  // 基准锚定坐标系：必须与航点/控制点一致。/lio/robo/odom 的 child 是 base_link
+  // （world系位置=base_link位置，指令驱动的就是它），而主流程 base_frame_id 是
+  // base_footprint（平移=IMU位置、旋转=偏航投影），两者存在杆臂/姿态表示差，
+  // 因此基准地图默认按 base_link 存储与匹配。留空则退回 base_frame_id。
+  std::string origin_baseline_base_frame_{"base_link"};
   pcl::PointCloud<pcl::PointXYZI>::Ptr origin_baseline_cloud_ptr_{
     new pcl::PointCloud<pcl::PointXYZI>};
   int origin_baseline_frame_count_{0};
@@ -214,19 +219,20 @@ public:
   double landing_best_fitness_{std::numeric_limits<double>::max()};
   bool has_last_baseline_match_time_{false};
   rclcpp::Time last_baseline_match_time_{0, 0, RCL_ROS_TIME};
-  // 滚动帧缓存：(base系滤波后点云, 采集时间戳)，最近 origin_baseline_frames_ 帧
+  // 滚动帧缓存：(锚定系(origin_baseline_base_frame)滤波后点云, 采集时间戳)，
+  // 最近 origin_baseline_frames_ 帧
   std::deque<std::pair<pcl::PointCloud<pcl::PointXYZI>::Ptr, rclcpp::Time>> recent_clouds_;
   // 与基准匹配专用的配准实例（避免干扰主 registration_ 的全图target）
   boost::shared_ptr<pcl::Registration<pcl::PointXYZI, pcl::PointXYZI>> origin_registration_;
 
   // Helper methods
   // 返回 true 表示本帧已由基准逻辑接管（积累中挂起全局定位，
-  // 或降落圈内已做基准匹配），主流程应跳过全局图匹配
-  bool processOriginBaseline(
-    const sensor_msgs::msg::PointCloud2::ConstSharedPtr & msg,
-    const pcl::PointCloud<pcl::PointXYZI>::Ptr & cloud_base);
+  // 或降落圈内已做基准匹配），主流程应跳过全局图匹配。
+  // 内部自行将原始点云变换到锚定系(origin_baseline_base_frame)，不依赖主流程的 base_frame 变换
+  bool processOriginBaseline(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & msg);
   void runBaselineLandingMatch(
-    const tf2::Transform & map_to_base, const rclcpp::Time & cloud_stamp);
+    const tf2::Transform & map_to_anchor_cur, const rclcpp::Time & cloud_stamp,
+    const std::string & anchor_frame);
   void createOriginRegistration();
   double calculateDisplacement(const geometry_msgs::msg::Pose& current_pose);
   bool shouldUpdateLocalization(const geometry_msgs::msg::Pose& current_pose);
