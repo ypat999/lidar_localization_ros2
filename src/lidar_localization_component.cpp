@@ -80,6 +80,7 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
   declare_parameter("origin_baseline_radius", 1.5);
   declare_parameter("origin_baseline_match_interval", 1.0);
   declare_parameter("origin_baseline_base_frame", "base_link");
+  declare_parameter("origin_baseline_pcd_path", "/tmp/origin_baseline.pcd");
   
   // GICP-specific parameters
   declare_parameter("gicp_corr_dist_threshold", 5.0);
@@ -144,6 +145,7 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
         else if (name == "origin_baseline_radius") origin_baseline_radius_ = p.as_double();
         else if (name == "origin_baseline_match_interval") origin_baseline_match_interval_ = p.as_double();
         else if (name == "origin_baseline_base_frame") origin_baseline_base_frame_ = p.as_string();
+        else if (name == "origin_baseline_pcd_path") origin_baseline_pcd_path_ = p.as_string();
         else if (name == "gicp_corr_dist_threshold") gicp_corr_dist_threshold_ = p.as_double();
         else if (name == "gicp_rotation_epsilon") gicp_rotation_epsilon_ = p.as_double();
         else if (name == "gicp_k_correspondences") gicp_k_correspondences_ = p.as_int();
@@ -411,6 +413,7 @@ void PCLLocalization::initializeParameters()
   get_parameter("origin_baseline_radius", origin_baseline_radius_);
   get_parameter("origin_baseline_match_interval", origin_baseline_match_interval_);
   get_parameter("origin_baseline_base_frame", origin_baseline_base_frame_);
+  get_parameter("origin_baseline_pcd_path", origin_baseline_pcd_path_);
 
   RCLCPP_INFO(get_logger(),"global_frame_id: %s", global_frame_id_.c_str());
   RCLCPP_INFO(get_logger(),"odom_frame_id: %s", odom_frame_id_.c_str());
@@ -857,6 +860,22 @@ bool PCLLocalization::processOriginBaseline(
           "landing refinement arms within %.1fm of world origin; resuming global map localization",
           anchor_frame.c_str(), origin_baseline_frames_, origin_baseline_cloud_ptr_->size(),
           origin_baseline_radius_);
+
+        // 基准点云按 map 系落盘供离线检查（CloudCompare/RViz 打开验证拼接质量）
+        if (!origin_baseline_pcd_path_.empty()) {
+          const int save_ret =
+            pcl::io::savePCDFileBinary(origin_baseline_pcd_path_, *origin_baseline_cloud_ptr_);
+          if (save_ret == 0) {
+            RCLCPP_INFO(get_logger(),
+              "Origin baseline cloud saved to %s (%s frame, %lu points)",
+              origin_baseline_pcd_path_.c_str(), global_frame_id_.c_str(),
+              origin_baseline_cloud_ptr_->size());
+          } else {
+            RCLCPP_WARN(get_logger(),
+              "Failed to save origin baseline PCD to %s (ret=%d)",
+              origin_baseline_pcd_path_.c_str(), save_ret);
+          }
+        }
         // 就绪当帧即放行，交给下面的初始定位流程处理
         return false;
       }
@@ -901,14 +920,13 @@ bool PCLLocalization::processOriginBaseline(
   {
     last_baseline_match_time_ = now_t;
     has_last_baseline_match_time_ = true;
-    runBaselineLandingMatch(map_to_anchor, rclcpp::Time(msg->header.stamp), anchor_frame);
+    runBaselineLandingMatch(rclcpp::Time(msg->header.stamp), anchor_frame);
   }
   return true;  // 进圈后本帧由基准降落逻辑接管
 }
 
 void PCLLocalization::runBaselineLandingMatch(
-  const tf2::Transform & map_to_anchor_cur, const rclcpp::Time & cloud_stamp,
-  const std::string & anchor_frame)
+  const rclcpp::Time & cloud_stamp, const std::string & anchor_frame)
 {
   // 将滚动帧缓存按各自时刻的 map->anchor 变换到 map 系，合成匹配源
   pcl::PointCloud<pcl::PointXYZI>::Ptr source_ptr(new pcl::PointCloud<pcl::PointXYZI>);
@@ -980,62 +998,40 @@ void PCLLocalization::runBaselineLandingMatch(
     return;
   }
 
-  // tf2::Transform -> Eigen 4x4，再叠加精修量：map->anchor = Δ * 当前map->anchor
-  tf2::Quaternion q_cur = map_to_anchor_cur.getRotation();
-  Eigen::Matrix4d cur_mat = Eigen::Matrix4d::Identity();
-  cur_mat.block<3, 3>(0, 0) =
-    Eigen::Quaterniond(q_cur.x(), q_cur.y(), q_cur.z(), q_cur.w()).toRotationMatrix();
-  cur_mat(0, 3) = map_to_anchor_cur.getOrigin().x();
-  cur_mat(1, 3) = map_to_anchor_cur.getOrigin().y();
-  cur_mat(2, 3) = map_to_anchor_cur.getOrigin().z();
-
-  Eigen::Matrix4d total = refined.cast<double>() * cur_mat;
-  Eigen::Quaterniond q(total.block<3, 3>(0, 0));
-  q.normalize();
-  tf2::Transform map_to_anchor_tf;
-  map_to_anchor_tf.setOrigin(tf2::Vector3(total(0, 3), total(1, 3), total(2, 3)));
-  map_to_anchor_tf.setRotation(tf2::Quaternion(q.x(), q.y(), q.z(), q.w()));
-
-  geometry_msgs::msg::TransformStamped odom_to_anchor_stamped;
+  // 组合法（重要教训 2026-09-20 实机）：不要用 (refined*map->anchor)*inv(odom->anchor)
+  // 这种"两次独立 anchor 查询"的组合——map->anchor 与 odom->anchor 各走一次 TF 解析，
+  // 在 /tf_static 双发布竞态或带时间戳查询超时回退时，两者可能落在不同采样上，
+  // 产生与锚定系无关的 ~179.4° 纯 yaw 组合差（fitness 正常、平移仅厘米级）。
+  // 代数上 out = refined * old_map->odom（refined 是 map 系左乘量，尾链严格对消），
+  // 因此直接单次查询当前 map->odom 后左乘 refined，全程只有一次 TF 解析。
+  geometry_msgs::msg::TransformStamped prev_m2o_stamped;
   try {
-    odom_to_anchor_stamped = tfbuffer_.lookupTransform(
-      odom_frame_id_, anchor_frame, cloud_stamp, rclcpp::Duration::from_seconds(0.5));
+    prev_m2o_stamped = tfbuffer_.lookupTransform(
+      global_frame_id_, odom_frame_id_, cloud_stamp, rclcpp::Duration::from_seconds(0.2));
   } catch (const tf2::TransformException &) {
     try {
-      odom_to_anchor_stamped = tfbuffer_.lookupTransform(
-        odom_frame_id_, anchor_frame, tf2::TimePointZero);
-    } catch (const tf2::TransformException & ex2) {
+      prev_m2o_stamped = tfbuffer_.lookupTransform(
+        global_frame_id_, odom_frame_id_, tf2::TimePointZero);
+    } catch (const tf2::TransformException & ex) {
       RCLCPP_WARN(get_logger(),
-        "Baseline match: no odom->%s TF, skipping TF update: %s",
-        anchor_frame.c_str(), ex2.what());
+        "Baseline match: no %s->%s TF available, skipping update: %s",
+        global_frame_id_.c_str(), odom_frame_id_.c_str(), ex.what());
       return;
     }
   }
-  tf2::Transform odom_to_anchor_tf;
-  tf2::fromMsg(odom_to_anchor_stamped.transform, odom_to_anchor_tf);
-  tf2::Transform map_to_odom_tf = map_to_anchor_tf * odom_to_anchor_tf.inverse();
+  tf2::Transform prev_m2o;
+  tf2::fromMsg(prev_m2o_stamped.transform, prev_m2o);
 
-  // 突变护栏：与当前生效的 map->odom 比较，旋转>30° 或平移>1m 直接拒绝。
-  // 防御锚定链解析异常（如多父边坐标系的180°路径歧义）产出"自洽但错误"的结果。
-  try {
-    const geometry_msgs::msg::TransformStamped prev_m2o = tfbuffer_.lookupTransform(
-      global_frame_id_, odom_frame_id_, cloud_stamp, rclcpp::Duration::from_seconds(0.1));
-    tf2::Transform prev;
-    tf2::fromMsg(prev_m2o.transform, prev);
-    const tf2::Transform diff = prev.inverse() * map_to_odom_tf;
-    const double diff_t = diff.getOrigin().length();
-    const double diff_rot =
-      2.0 * std::acos(std::min(1.0, std::fabs(diff.getRotation().w())));
-    if (diff_rot > 0.52 || diff_t > 1.0) {
-      RCLCPP_WARN(get_logger(),
-        "Landing baseline map->odom update rejected as jump: rot=%.1fdeg t=%.2fm "
-        "(fitness %.6f) — check anchor frame for multiple parent edges",
-        diff_rot * 180.0 / M_PI, diff_t, fitness);
-      return;  // 不更新 best，后续正常结果仍可发布
-    }
-  } catch (const tf2::TransformException &) {
-    // 尚无 map->odom（理论不应发生），放行，由 corr 幅度门兜底
-  }
+  tf2::Transform refined_tf;
+  refined_tf.setOrigin(
+    tf2::Vector3(refined(0, 3), refined(1, 3), refined(2, 3)));
+  Eigen::Quaterniond q_refined(refined.block<3, 3>(0, 0).cast<double>());
+  q_refined.normalize();
+  tf2::Quaternion q_t(q_refined.x(), q_refined.y(), q_refined.z(), q_refined.w());
+  q_t.normalize();
+  refined_tf.setRotation(q_t);
+
+  const tf2::Transform map_to_odom_tf = refined_tf * prev_m2o;
 
   // 新历史最低误差：以静态TF发布，锁定为本次降落的 map->odom
   landing_best_fitness_ = fitness;

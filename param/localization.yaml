@@ -96,3 +96,5 @@
       # static_transform_map_to_odom 已注释（避免与 lidar_localization 双发布
       # /tf_static 竞态），且降落匹配有起飞武装门 + >30°/1m 跳变护栏兜底。
       origin_baseline_base_frame: base_link
+      # 基准就绪后将点云按 map 系落盘（binary PCD），供 CloudCompare/RViz 检查拼接质量；留空禁用
+      origin_baseline_pcd_path: /tmp/origin_baseline.pcd

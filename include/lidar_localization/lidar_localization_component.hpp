@@ -212,6 +212,7 @@ public:
   // （已从 Livox_mid360_drone.py 注释掉恒等发布），并叠加坪上未起飞即误触发
   // 降落接管（已加 departed 武装门）与 >30°/1m 跳变护栏。
   std::string origin_baseline_base_frame_{"base_link"};
+  std::string origin_baseline_pcd_path_{"/tmp/origin_baseline.pcd"};  // 基准就绪后落盘（map系），空串禁用
   pcl::PointCloud<pcl::PointXYZI>::Ptr origin_baseline_cloud_ptr_{
     new pcl::PointCloud<pcl::PointXYZI>};
   int origin_baseline_frame_count_{0};
@@ -234,8 +235,7 @@ public:
   // 内部自行将原始点云变换到锚定系(origin_baseline_base_frame)，不依赖主流程的 base_frame 变换
   bool processOriginBaseline(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & msg);
   void runBaselineLandingMatch(
-    const tf2::Transform & map_to_anchor_cur, const rclcpp::Time & cloud_stamp,
-    const std::string & anchor_frame);
+    const rclcpp::Time & cloud_stamp, const std::string & anchor_frame);
   void createOriginRegistration();
   double calculateDisplacement(const geometry_msgs::msg::Pose& current_pose);
   bool shouldUpdateLocalization(const geometry_msgs::msg::Pose& current_pose);
