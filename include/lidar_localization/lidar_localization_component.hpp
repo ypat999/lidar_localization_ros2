@@ -1,5 +1,4 @@
 #include <chrono>
-#include <deque>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -223,9 +222,6 @@ public:
   double landing_best_fitness_{std::numeric_limits<double>::max()};
   bool has_last_baseline_match_time_{false};
   rclcpp::Time last_baseline_match_time_{0, 0, RCL_ROS_TIME};
-  // 滚动帧缓存：(锚定系(origin_baseline_base_frame)滤波后点云, 采集时间戳)，
-  // 最近 origin_baseline_frames_ 帧
-  std::deque<std::pair<pcl::PointCloud<pcl::PointXYZI>::Ptr, rclcpp::Time>> recent_clouds_;
   // 与基准匹配专用的配准实例（避免干扰主 registration_ 的全图target）
   boost::shared_ptr<pcl::Registration<pcl::PointXYZI, pcl::PointXYZI>> origin_registration_;
 
@@ -234,8 +230,10 @@ public:
   // 或降落圈内已做基准匹配），主流程应跳过全局图匹配。
   // 内部自行将原始点云变换到锚定系(origin_baseline_base_frame)，不依赖主流程的 base_frame 变换
   bool processOriginBaseline(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & msg);
+  // 单帧匹配：当前帧(锚定系)按本次解析的 map->anchor 变到 map 系作为源
   void runBaselineLandingMatch(
-    const rclcpp::Time & cloud_stamp, const std::string & anchor_frame);
+    const pcl::PointCloud<pcl::PointXYZI>::Ptr & cloud_anchor,
+    const tf2::Transform & map_to_anchor_cur, const rclcpp::Time & cloud_stamp);
   void createOriginRegistration();
   double calculateDisplacement(const geometry_msgs::msg::Pose& current_pose);
   bool shouldUpdateLocalization(const geometry_msgs::msg::Pose& current_pose);

@@ -827,13 +827,6 @@ bool PCLLocalization::processOriginBaseline(
     }
   }
 
-  // 维护滚动帧缓存（基准积累期与降落匹配期共用，锚定系）
-  recent_clouds_.emplace_back(cloud_anchor, rclcpp::Time(msg->header.stamp));
-  const size_t max_keep = static_cast<size_t>(std::max(origin_baseline_frames_, 1));
-  while (recent_clouds_.size() > max_keep) {
-    recent_clouds_.pop_front();
-  }
-
   if (!origin_baseline_ready_) {
     // ===== 启动阶段：先积累基准，期间挂起全局图定位（定位延后做，不冲突） =====
     if (in_zone) {
@@ -920,35 +913,29 @@ bool PCLLocalization::processOriginBaseline(
   {
     last_baseline_match_time_ = now_t;
     has_last_baseline_match_time_ = true;
-    runBaselineLandingMatch(rclcpp::Time(msg->header.stamp), anchor_frame);
+    runBaselineLandingMatch(cloud_anchor, map_to_anchor, rclcpp::Time(msg->header.stamp));
   }
   return true;  // 进圈后本帧由基准降落逻辑接管
 }
 
 void PCLLocalization::runBaselineLandingMatch(
-  const rclcpp::Time & cloud_stamp, const std::string & anchor_frame)
+  const pcl::PointCloud<pcl::PointXYZI>::Ptr & cloud_anchor,
+  const tf2::Transform & map_to_anchor_cur, const rclcpp::Time & cloud_stamp)
 {
-  // 将滚动帧缓存按各自时刻的 map->anchor 变换到 map 系，合成匹配源
+  // 单帧匹配：当前帧（锚定系）按本次已解析的 map->anchor 变换到 map 系作为源，
+  // 不做多帧拼接（降落段飞机在动，拼接会产生拖影；也避免额外 TF 解析）
+  const tf2::Vector3 & ao = map_to_anchor_cur.getOrigin();
+  const tf2::Quaternion & ar = map_to_anchor_cur.getRotation();
+  Eigen::Matrix4d map_to_anchor_mat = Eigen::Matrix4d::Identity();
+  map_to_anchor_mat.block<3, 3>(0, 0) =
+    Eigen::Quaterniond(ar.w(), ar.x(), ar.y(), ar.z()).toRotationMatrix();
+  map_to_anchor_mat(0, 3) = ao.x();
+  map_to_anchor_mat(1, 3) = ao.y();
+  map_to_anchor_mat(2, 3) = ao.z();
+
   pcl::PointCloud<pcl::PointXYZI>::Ptr source_ptr(new pcl::PointCloud<pcl::PointXYZI>);
-  for (const auto & frame : recent_clouds_) {
-    geometry_msgs::msg::TransformStamped m2b;
-    try {
-      m2b = tfbuffer_.lookupTransform(
-        global_frame_id_, anchor_frame, frame.second,
-        rclcpp::Duration::from_seconds(0.05));
-    } catch (const tf2::TransformException &) {
-      try {
-        m2b = tfbuffer_.lookupTransform(
-          global_frame_id_, anchor_frame, tf2::TimePointZero);
-      } catch (const tf2::TransformException &) {
-        continue;
-      }
-    }
-    Eigen::Matrix4f T = tf2::transformToEigen(m2b.transform).matrix().cast<float>();
-    pcl::PointCloud<pcl::PointXYZI>::Ptr frame_in_map(new pcl::PointCloud<pcl::PointXYZI>);
-    pcl::transformPointCloud(*frame.first, *frame_in_map, T);
-    *source_ptr += *frame_in_map;
-  }
+  pcl::transformPointCloud(
+    *cloud_anchor, *source_ptr, map_to_anchor_mat.cast<float>());
 
   const size_t min_points = 100;
   if (source_ptr->size() < min_points) {
