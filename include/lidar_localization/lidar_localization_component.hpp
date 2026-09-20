@@ -204,6 +204,7 @@ public:
   int origin_baseline_frames_{10};          // 积累帧数（可配置）
   double origin_baseline_radius_{1.5};      // 原点触发半径（米，xy）
   double origin_baseline_match_interval_{1.0};  // 基准匹配周期（秒），默认1Hz
+  double origin_baseline_score_threshold_{1.0};  // 降落匹配fitness上限，超过直接丢弃
   // 基准锚定坐标系：base_link（航点/控制点，与 /lio/robo/odom 的 child 一致，
   // 实测其方向与 TF 静态链 imu->livox_frame->base_link 相同，无 180° 歧义）。
   // 2026-09-20 坪上曾出现 map->odom 输出 180° 翻转：根因锁定为 launch 的

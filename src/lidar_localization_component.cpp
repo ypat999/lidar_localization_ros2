@@ -79,6 +79,7 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
   declare_parameter("origin_baseline_frames", 10);
   declare_parameter("origin_baseline_radius", 1.5);
   declare_parameter("origin_baseline_match_interval", 1.0);
+  declare_parameter("origin_baseline_score_threshold", 1.0);
   declare_parameter("origin_baseline_base_frame", "base_link");
   declare_parameter("origin_baseline_pcd_path", "/tmp/origin_baseline.pcd");
   
@@ -144,6 +145,7 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
         else if (name == "origin_baseline_frames") origin_baseline_frames_ = p.as_int();
         else if (name == "origin_baseline_radius") origin_baseline_radius_ = p.as_double();
         else if (name == "origin_baseline_match_interval") origin_baseline_match_interval_ = p.as_double();
+        else if (name == "origin_baseline_score_threshold") origin_baseline_score_threshold_ = p.as_double();
         else if (name == "origin_baseline_base_frame") origin_baseline_base_frame_ = p.as_string();
         else if (name == "origin_baseline_pcd_path") origin_baseline_pcd_path_ = p.as_string();
         else if (name == "gicp_corr_dist_threshold") gicp_corr_dist_threshold_ = p.as_double();
@@ -412,6 +414,7 @@ void PCLLocalization::initializeParameters()
   get_parameter("origin_baseline_frames", origin_baseline_frames_);
   get_parameter("origin_baseline_radius", origin_baseline_radius_);
   get_parameter("origin_baseline_match_interval", origin_baseline_match_interval_);
+  get_parameter("origin_baseline_score_threshold", origin_baseline_score_threshold_);
   get_parameter("origin_baseline_base_frame", origin_baseline_base_frame_);
   get_parameter("origin_baseline_pcd_path", origin_baseline_pcd_path_);
 
@@ -961,6 +964,14 @@ void PCLLocalization::runBaselineLandingMatch(
     return;
   }
   const double fitness = origin_registration_->getFitnessScore();
+
+  // fitness 上限门：超过阈值视为无效匹配直接丢弃（不更新 best，也不发布TF）
+  if (fitness > origin_baseline_score_threshold_) {
+    RCLCPP_DEBUG(get_logger(),
+      "Baseline match fitness %.6f exceeds threshold %.6f, skipping",
+      fitness, origin_baseline_score_threshold_);
+    return;
+  }
 
   // 只接受比本次进圈后历史最低误差更好的结果
   if (!(fitness < landing_best_fitness_)) {

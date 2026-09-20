@@ -91,6 +91,7 @@
       origin_baseline_frames: 10           # 启动时积累的基准帧数（可配置）
       origin_baseline_radius: 1.5          # 原点触发半径（米，xy）
       origin_baseline_match_interval: 1.0  # 基准匹配周期（秒），默认1Hz
+      origin_baseline_score_threshold: 1.0 # 降落匹配fitness上限，超过直接丢弃
       # 基准锚定坐标系：base_link（航点/控制点，与 /lio/robo/odom child 一致，
       # 实测方向与 TF 静态链一致）。前提：Livox_mid360_drone.py 中恒等
       # static_transform_map_to_odom 已注释（避免与 lidar_localization 双发布
