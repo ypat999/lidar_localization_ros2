@@ -1,6 +1,40 @@
 # lidar_localization_ros2
 A ROS2 package of 3D LIDAR-based Localization.
 
+> ## XTDrone2 fork 扩展：原点基准精准降落（Origin Baseline Landing）
+>
+> 本 fork 在原版全局图定位之上新增"起飞点基准"能力，`map->odom` 静态 TF 由本节点独家持有
+> （Super-LIO launch 已停用恒等 map->odom 发布）。工作时序：
+>
+> 1. **启动攒基准**：飞机在坪上（xy < `origin_baseline_radius`）时积累
+>    `origin_baseline_frames` 帧点云，按 map->`origin_baseline_base_frame` 位姿
+>    全分辨率合并为原点基准地图（不降采样；可落盘 `origin_baseline_pcd_path` 检查）。
+>    积累期间**挂起全局图初始定位**（先基准、后定位）。
+> 2. **起飞武装**：基准就绪后须首次离圈（真实起飞）才激活降落匹配，坪上待机期间
+>    全局图定位保持权威（防止启动即被基准误接管）。
+> 3. **返航接管**：xy 重新进圈后，每 `origin_baseline_match_interval`（默认1s）将
+>    **当前单帧**点云变换到 map 系与基准直接 GICP 匹配；fitness ≤
+>    `origin_baseline_score_threshold` 且优于进圈后历史最低误差时才更新 `map->odom`
+>    静态 TF（最低误差锁定）。突变护栏：与当前 map->odom 差 >30° 或 >1m 拒绝并 WARN。
+> 4. **出圈恢复**：离圈即回到全局图定位流程，下次起飞重新进圈重新匹配。
+>
+> 新增参数（`localization.yaml`）：
+>
+> | 参数 | 默认 | 说明 |
+> |---|---|---|
+> | `enable_origin_baseline` | true | 原点基准精准降落总开关 |
+> | `origin_baseline_frames` | 10 | 基准积累帧数 |
+> | `origin_baseline_radius` | 1.5 | 原点触发半径（米，xy） |
+> | `origin_baseline_match_interval` | 1.0 | 进圈后匹配周期（秒） |
+> | `origin_baseline_score_threshold` | 1.0 | 降落匹配 fitness 上限，超过丢弃 |
+> | `origin_baseline_base_frame` | base_link | 基准锚定系（与航点/控制点 `/lio/robo/odom` 一致） |
+> | `origin_baseline_pcd_path` | /tmp/origin_baseline.pcd | 基准地图落盘路径（空=禁用） |
+>
+> 实测检查点：`Origin baseline ready` / `armed: left takeoff zone` /
+> `Entered origin landing zone` / `Landing baseline NEW BEST`；
+> 出现 `rejected as jump` 说明运行时 /tf 有瞬时异常，需查 `/tf_static` 发布者名单。
+
+
 <img src="./images/path.png" width="640px">
 
 Green: path, Red: map  
