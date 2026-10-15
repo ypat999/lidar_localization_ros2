@@ -46,7 +46,7 @@ Green: path, Red: map
 
 ## IO
 - input  
-/cloud  (sensor_msgs/PointCloud2)  
+/cloud  (sensor_msgs/PointCloud2) ← XTDrone2 launch 默认 remap 到 `cloud_body`（无人机 `/lio/cloud_body`，机器狗 `/rkbot/lio/cloud_body`，提交 `14bdf74`）  
 /map  (sensor_msgs/PointCloud2)  
 /initialpose (geometry_msgs/PoseStamed)(when `set_initial_pose` is false)  
 /odom (nav_msgs/Odometry)(optional)   
