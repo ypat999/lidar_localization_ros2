@@ -1,8 +1,27 @@
 #include <lidar_localization/lidar_localization_component.hpp>
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <numeric>
+#include <string>
 #include <thread>
+
+// 将地图路径中硬编码的 /home/cat 或 ~ 前缀替换为当前用户家目录
+static std::string resolve_home_path(const std::string & path)
+{
+  const char * const home = getenv("HOME");
+  if (home == nullptr) {
+    return path;
+  }
+  const std::string h(home);
+  if (path.compare(0, 9, "/home/cat") == 0) {
+    return h + path.substr(9);
+  }
+  if (path.compare(0, 2, "~/") == 0) {
+    return h + path.substr(1);
+  }
+  return path;
+}
 
 PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
 : rclcpp_lifecycle::LifecycleNode("lidar_localization", options),
@@ -110,7 +129,7 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
         else if (name == "scan_min_range") scan_min_range_ = p.as_double();
         else if (name == "scan_period") scan_period_ = p.as_double();
         else if (name == "use_pcd_map") use_pcd_map_ = p.as_bool();
-        else if (name == "map_path") map_path_ = p.as_string();
+        else if (name == "map_path") map_path_ = resolve_home_path(p.as_string());
         else if (name == "set_initial_pose") set_initial_pose_ = p.as_bool();
         else if (name == "initial_pose_x") initial_pose_x_ = p.as_double();
         else if (name == "initial_pose_y") initial_pose_y_ = p.as_double();
@@ -372,6 +391,7 @@ void PCLLocalization::initializeParameters()
   get_parameter("scan_period", scan_period_);
   get_parameter("use_pcd_map", use_pcd_map_);
   get_parameter("map_path", map_path_);
+  map_path_ = resolve_home_path(map_path_);
   get_parameter("set_initial_pose", set_initial_pose_);
   get_parameter("initial_pose_x", initial_pose_x_);
   get_parameter("initial_pose_y", initial_pose_y_);
