@@ -45,7 +45,7 @@ def generate_launch_description():
         package='lidar_localization_ros2',
         executable='lidar_localization_node',
         parameters=[localization_param_dir],
-        remappings=[('/cloud','/lio/body/cloud'),
+        remappings=[('/cloud','/lio/cloud_body'),
                     ('/imu','/livox/imu'),
                     ('/odom','/lio/odom')],
         prefix=['taskset -c 5,6'],   # 绑定 CPU 5,6

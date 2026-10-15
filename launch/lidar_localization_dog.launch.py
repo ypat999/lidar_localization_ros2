@@ -36,12 +36,12 @@ def generate_launch_description():
 
     # 启动参数声明
     cloud_topic = launch.substitutions.LaunchConfiguration(
-        'cloud_topic', default='/rkbot/lio/body/cloud')
+        'cloud_topic', default='/rkbot/lio/cloud_body')
     odom_topic = launch.substitutions.LaunchConfiguration(
         'odom_topic', default='/rkbot/lio/robo/odom')
 
     ld.add_action(launch.actions.DeclareLaunchArgument(
-        'cloud_topic', default_value='/rkbot/lio/body/cloud',
+        'cloud_topic', default_value='/rkbot/lio/cloud_body',
         description='Point cloud topic for lidar localization'))
     ld.add_action(launch.actions.DeclareLaunchArgument(
         'odom_topic', default_value='/rkbot/lio/odom',
