@@ -1,7 +1,7 @@
 # lidar_localization_ros2
 A ROS2 package of 3D LIDAR-based Localization.
 
-> ## XTDrone2 fork 扩展：原点基准精准降落（Origin Baseline Landing）
+> ## RKDrone fork 扩展：原点基准精准降落（Origin Baseline Landing）
 >
 > 本 fork 在原版全局图定位之上新增"起飞点基准"能力，`map->odom` 静态 TF 由本节点独家持有
 > （Super-LIO launch 已停用恒等 map->odom 发布）。工作时序：
@@ -46,7 +46,7 @@ Green: path, Red: map
 
 ## IO
 - input  
-/cloud  (sensor_msgs/PointCloud2) ← XTDrone2 launch 默认 remap 到 `cloud_body`（无人机 `/lio/cloud_body`，机器狗 `/rkbot/lio/cloud_body`，提交 `14bdf74`）  
+/cloud  (sensor_msgs/PointCloud2) ← RKDrone launch 默认 remap 到 `cloud_body`（无人机 `/lio/cloud_body`，机器狗 `/rkbot/lio/cloud_body`，提交 `14bdf74`）  
 /map  (sensor_msgs/PointCloud2)  
 /initialpose (geometry_msgs/PoseStamed)(when `set_initial_pose` is false)  
 /odom (nav_msgs/Odometry)(optional)   
