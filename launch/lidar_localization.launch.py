@@ -48,7 +48,7 @@ def generate_launch_description():
         remappings=[('/cloud','/lio/cloud_body'),
                     ('/imu','/livox/imu'),
                     ('/odom','/lio/odom')],
-        prefix=['taskset -c 5,6'],   # 绑定 CPU 5,6
+        prefix=['taskset', '-c', '5,6'],   # 绑定 CPU 5,6
         output='screen',
         respawn=True,                # 崩溃后自动重启
         respawn_delay=2.0,           # 重启间隔 2 秒
