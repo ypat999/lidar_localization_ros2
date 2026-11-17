@@ -1,10 +1,36 @@
 #include <lidar_localization/lidar_localization_component.hpp>
+#include <pcl/console/print.h>
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <numeric>
 #include <string>
 #include <thread>
+
+namespace
+{
+  // 限频日志：同一调用点最多每 interval_sec 秒输出一条，下次输出时附带期间被压掉的条数。
+  struct ThrottledLog
+  {
+    std::chrono::steady_clock::time_point last{};
+    int suppressed = 0;
+
+    bool allow(double interval_sec, int &suppressed_out)
+    {
+      const auto now = std::chrono::steady_clock::now();
+      if (last.time_since_epoch().count() != 0 &&
+          std::chrono::duration<double>(now - last).count() < interval_sec)
+      {
+        ++suppressed;
+        return false;
+      }
+      suppressed_out = suppressed;
+      suppressed = 0;
+      last = now;
+      return true;
+    }
+  };
+}
 
 // 将地图路径中硬编码的 /home/cat 或 ~ 前缀替换为当前用户家目录
 static std::string resolve_home_path(const std::string & path)
@@ -31,6 +57,10 @@ PCLLocalization::PCLLocalization(const rclcpp::NodeOptions & options)
   broadcaster_(this),
   static_broadcaster_(this)
 {
+  // 点云过稀时 pcl::VoxelGrid 会逐帧刷 "Leaf size is too small" 告警，
+  // 与本节点已单独上报的 "Point cloud too sparse" 是同一异常，这里只保留 PCL 错误级输出。
+  pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
+
   declare_parameter("global_frame_id", "map");
   declare_parameter("odom_frame_id", "odom");
   declare_parameter("base_frame_id", "base_link");
@@ -1177,9 +1207,14 @@ void PCLLocalization::cloudReceived(const sensor_msgs::msg::PointCloud2::ConstSh
   // 检查点云数量是否足够进行配准（GICP 需要 >= k_correspondences 个点）
   const size_t min_points_for_gicp = 100;  // 至少需要 100 个点
   if (cloud_for_registration->size() < min_points_for_gicp) {
-    RCLCPP_WARN(get_logger(), 
-      "Point cloud too sparse (%zu points < %zu), skipping localization",
-      cloud_for_registration->size(), min_points_for_gicp);
+    static ThrottledLog sparse_throttle;
+    int sparse_suppressed = 0;
+    if (sparse_throttle.allow(1.0, sparse_suppressed)) {
+      RCLCPP_WARN(get_logger(),
+        "Point cloud too sparse (%zu points < %zu), skipping localization%s",
+        cloud_for_registration->size(), min_points_for_gicp,
+        sparse_suppressed > 0 ? (" (期间抑制 " + std::to_string(sparse_suppressed) + " 条)").c_str() : "");
+    }
     return;
   }
   
